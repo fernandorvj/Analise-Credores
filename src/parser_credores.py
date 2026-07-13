@@ -309,6 +309,91 @@ def _extrair_de_texto(pagina: PaginaExtraida, proximo_id: int) -> list[Credor]:
     return credores
 
 
+# --- Extração por "ficha" (um campo por bloco de texto) -----------------
+#
+# Alguns PDFs escaneados (gerados de formulário) trazem cada credor como uma
+# ficha vertical — nome, documento, valor e classe cada um em seu próprio
+# bloco de linhas, separados por linha(s) em branco, em vez de tudo em uma
+# única linha de tabela. O parser de linha de texto acima não funciona nesse
+# formato (não há nome+documento+valor na mesma linha). Este parser usa o
+# documento (CPF/CNPJ) como âncora e lê nome/valor/classe pela posição fixa
+# ao redor dele: [NOME] [DOCUMENTO] ["R$"] [VALOR] [CLASSE] ...
+
+_RE_DOCUMENTO_COMPLETO = re.compile(
+    r"^\d{3}\.?\d{3}\.?\d{3}-?\d{2}$"  # CPF isolado no bloco
+    r"|^\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}$"  # CNPJ isolado no bloco
+)
+_RE_INDICE_ISOLADO = re.compile(r"^\d{1,4}$")  # bloco só com um número (índice da ficha, ex.: "10")
+
+
+def _agrupar_blocos(texto: str) -> list[str]:
+    """Agrupa linhas de texto em blocos (um campo de ficha cada), separados por
+    linha(s) em branco. Linhas dentro do mesmo bloco (ex.: endereço quebrado em
+    duas linhas) são unidas com espaço.
+    """
+    blocos: list[str] = []
+    linhas_bloco: list[str] = []
+    for linha in texto.splitlines():
+        linha = linha.strip()
+        if linha:
+            linhas_bloco.append(linha)
+        elif linhas_bloco:
+            blocos.append(limpar_espacos(" ".join(linhas_bloco)))
+            linhas_bloco = []
+    if linhas_bloco:
+        blocos.append(limpar_espacos(" ".join(linhas_bloco)))
+    return blocos
+
+
+def _extrair_de_blocos(pagina: PaginaExtraida, proximo_id: int) -> list[Credor]:
+    """Extrai credores de PDFs em formato de ficha (ver módulo acima)."""
+    blocos = _agrupar_blocos(pagina.texto)
+    credores: list[Credor] = []
+
+    for i, bloco in enumerate(blocos):
+        if not _RE_DOCUMENTO_COMPLETO.match(bloco):
+            continue
+
+        documento_bruto = bloco
+        tipo_doc, doc_valido = identificar_tipo_documento(documento_bruto)
+
+        nome = ""
+        if i > 0:
+            candidato = blocos[i - 1]
+            nome = "" if _RE_INDICE_ISOLADO.match(candidato) else candidato
+
+        k = i + 1
+        if k < len(blocos) and blocos[k].upper() == "R$":
+            k += 1
+        valor = parse_valor_brl(blocos[k]) if k < len(blocos) else None
+        k += 1
+        classe_bruta = blocos[k] if k < len(blocos) else ""
+
+        classe = _identificar_classe(classe_bruta) if classe_bruta else "Não identificada"
+        if classe == "Não identificada" and classe_bruta:
+            classe = classe_bruta
+
+        status, observacoes = _avaliar_qualidade(nome, documento_bruto, doc_valido, valor, classe)
+
+        credores.append(
+            Credor(
+                id=proximo_id,
+                nome=nome or _NOME_NAO_IDENTIFICADO,
+                documento=formatar_documento(documento_bruto),
+                tipo_documento=tipo_doc,
+                classe=classe,
+                valor=valor,
+                pagina=pagina.numero,
+                status_leitura=status,
+                observacoes=observacoes,
+                texto_origem=bloco,
+            )
+        )
+        proximo_id += 1
+
+    return credores
+
+
 _TOLERANCIA_RECONCILIACAO = 0.01  # diferenças de centavos (arredondamento) não geram aviso
 
 
@@ -467,6 +552,11 @@ def parsear_credores(paginas: list[PaginaExtraida], arquivo_nome: str) -> Result
             continue
 
         credores_texto = _extrair_de_texto(pagina, proximo_id)
+        # Se nenhum registro tem nome de verdade, o parser de linha não serve
+        # para o layout desta página (ex.: "ficha por credor", um campo por
+        # linha) — tenta o parser de blocos antes de aceitar o resultado vazio.
+        if not any(c.nome != _NOME_NAO_IDENTIFICADO for c in credores_texto):
+            credores_texto = _extrair_de_blocos(pagina, proximo_id)
         resultado.credores.extend(credores_texto)
         proximo_id += len(credores_texto)
 

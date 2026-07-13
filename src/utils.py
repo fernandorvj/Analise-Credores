@@ -91,6 +91,15 @@ def parse_valor_brl(texto: str) -> float | None:
         return None
 
     limpo = texto.strip().replace("R$", "").strip()
+
+    # Ruído comum de OCR: separador de milhar (ponto) reconhecido como vírgula,
+    # gerando múltiplas vírgulas (ex.: "3.038,245,44" em vez do correto
+    # "3.038.245,44"). Um valor BR correto nunca tem mais de uma vírgula, então
+    # normaliza todas menos a última (decimal) para ponto antes de interpretar.
+    if limpo.count(",") > 1:
+        partes = limpo.split(",")
+        limpo = ".".join(partes[:-1]) + "," + partes[-1]
+
     match = _RE_VALOR_BR.search(limpo)
     if not match:
         return None
