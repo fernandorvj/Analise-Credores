@@ -537,6 +537,8 @@ def parsear_credores(paginas: list[PaginaExtraida], arquivo_nome: str) -> Result
     resultado = ResultadoExtracao(arquivo_nome=arquivo_nome, total_paginas=len(paginas))
     proximo_id = 1
     estado = _EstadoTabelas()
+    classe_atual_edital: str | None = None
+    fragmento_pendente_edital = ""
 
     for pagina in paginas:
         if pagina.fonte == "ocr_indisponivel":
@@ -553,9 +555,14 @@ def parsear_credores(paginas: list[PaginaExtraida], arquivo_nome: str) -> Result
 
         credores_texto = _extrair_de_texto(pagina, proximo_id)
         # Se nenhum registro tem nome de verdade, o parser de linha não serve
-        # para o layout desta página (ex.: "ficha por credor", um campo por
-        # linha) — tenta o parser de blocos antes de aceitar o resultado vazio.
+        # para o layout desta página — tenta, nesta ordem, o formato de edital
+        # ("CLASSE X - ...: NOME - R$ VALOR; ...") e o de "ficha por credor"
+        # (um campo por linha), antes de aceitar o resultado vazio.
         if not any(c.nome != _NOME_NAO_IDENTIFICADO for c in credores_texto):
+            credores_texto, classe_atual_edital, fragmento_pendente_edital = _extrair_de_edital(
+                pagina, proximo_id, classe_atual_edital, fragmento_pendente_edital
+            )
+        if not credores_texto:
             credores_texto = _extrair_de_blocos(pagina, proximo_id)
         resultado.credores.extend(credores_texto)
         proximo_id += len(credores_texto)
@@ -578,5 +585,149 @@ def parsear_credores(paginas: list[PaginaExtraida], arquivo_nome: str) -> Result
         len(resultado.credores_com_erro),
         duplicados_consolidados,
         len(resultado.avisos_reconciliacao),
+    )
+    return resultado
+
+
+# --- Extração de editais (texto corrido embutido em PDF, digital ou colado) -
+#
+# Editais de Recuperação Judicial publicados em plataformas como o DJEN/
+# Plataforma Nacional de Editais trazem a relação de credores embutida em um
+# parágrafo de texto corrido, no formato:
+#   "CLASSE III - QUIROGRAFÁRIO: NOME - R$ VALOR; NOME - R$ VALOR; ... ."
+# Não há CPF/CNPJ nesse formato — só nome, valor e classe. Esses editais
+# costumam ser PDFs digitais (não escaneados), então o texto já vem limpo do
+# `leitor_pdf.py` — este é só mais um formato de página de texto corrido, como
+# `_extrair_de_texto` e `_extrair_de_blocos`.
+
+_RE_CLASSE_MARCADOR_EDITAL = re.compile(r"CLASSE\s+[IVX]+[^:]{0,40}:", re.IGNORECASE)
+_RE_ITEM_EDITAL = re.compile(r"^(.+?)\s*-\s*R\$\s*([\d.,]+)")
+
+
+def _itens_de_trecho(trecho: str, classe: str, numero_pagina: int, proximo_id: int) -> tuple[list[Credor], str]:
+    """Extrai os itens "nome - R$ valor" (separados por ";") de um trecho de
+    texto já associado a uma classe conhecida.
+
+    O último pedaço (após o último ";") pode ser texto de fechamento do
+    edital/próxima classe (nesse caso é ignorado) OU um item cortado ao meio
+    por uma quebra de página (nesse caso é devolvido como "resto" para ser
+    concatenado ao início da página seguinte e completado lá).
+    """
+    credores: list[Credor] = []
+    pedacos = trecho.split(";")
+    for indice, item in enumerate(pedacos):
+        item = limpar_espacos(item)
+        if not item:
+            continue
+        correspondencia = _RE_ITEM_EDITAL.match(item)
+        if correspondencia:
+            nome = limpar_espacos(correspondencia.group(1))
+            valor = parse_valor_brl(correspondencia.group(2))
+            if not nome or valor is None:
+                continue
+            status, observacoes = _avaliar_qualidade(nome, "", False, valor, classe)
+            credores.append(
+                Credor(
+                    id=proximo_id + len(credores),
+                    nome=nome,
+                    documento="",
+                    tipo_documento=TipoDocumento.INDEFINIDO,
+                    classe=classe,
+                    valor=valor,
+                    pagina=numero_pagina,
+                    status_leitura=status,
+                    observacoes=observacoes,
+                    texto_origem=item,
+                )
+            )
+        elif indice == len(pedacos) - 1:
+            # Não casou e é o último pedaço do trecho: pode ser texto de
+            # fechamento do edital OU um item partido pela quebra de página.
+            # Só é seguro tratar como possível item partido se tiver conteúdo
+            # "razoável" (não uma frase inteira de fechamento) — heurística:
+            # sem outro sinal melhor, devolve sempre; se for boilerplate, o
+            # próximo trecho começará com um marcador de classe e o resto é
+            # descartado por quem chama.
+            return credores, item
+
+    return credores, ""
+
+
+def _extrair_de_edital(
+    pagina: PaginaExtraida, proximo_id: int, classe_atual: str | None, fragmento_pendente: str = ""
+) -> tuple[list[Credor], str | None, str]:
+    """Extrai credores de uma página em formato de edital (ver módulo acima).
+
+    Duas situações de quebra de página são tratadas:
+    1. Uma seção de classe pode continuar em uma nova página sem repetir o
+       marcador "CLASSE ... :" — `classe_atual` (a última classe vista, de uma
+       página anterior) resolve isso.
+    2. Um item "nome - R$ valor" pode ser cortado ao meio exatamente na
+       quebra de página — `fragmento_pendente` (o pedaço incompleto deixado
+       pela página anterior) é concatenado ao início do texto desta página
+       antes de processar, para reconstituir o item completo.
+
+    Devolve (credores, classe_atual, fragmento_pendente) para a próxima página.
+    """
+    texto = (fragmento_pendente + " " + pagina.texto) if fragmento_pendente else pagina.texto
+    marcadores = list(_RE_CLASSE_MARCADOR_EDITAL.finditer(texto))
+    credores: list[Credor] = []
+    novo_fragmento_pendente = ""
+
+    inicio_primeiro_marcador = marcadores[0].start() if marcadores else len(texto)
+    if classe_atual is not None and inicio_primeiro_marcador > 0:
+        trecho_inicial = texto[:inicio_primeiro_marcador]
+        novos, resto = _itens_de_trecho(trecho_inicial, classe_atual, pagina.numero, proximo_id)
+        credores.extend(novos)
+        proximo_id += len(novos)
+        if not marcadores:
+            novo_fragmento_pendente = resto
+
+    for indice, marcador in enumerate(marcadores):
+        classe_bruta = marcador.group(0)
+        classe_atual = _identificar_classe(classe_bruta)
+        if classe_atual == "Não identificada":
+            classe_atual = limpar_espacos(classe_bruta.rstrip(":"))
+
+        eh_ultimo_marcador = indice == len(marcadores) - 1
+        fim = marcadores[indice + 1].start() if not eh_ultimo_marcador else len(texto)
+        trecho = texto[marcador.end() : fim]
+        novos, resto = _itens_de_trecho(trecho, classe_atual, pagina.numero, proximo_id)
+        credores.extend(novos)
+        proximo_id += len(novos)
+        if eh_ultimo_marcador:
+            novo_fragmento_pendente = resto
+
+    return credores, classe_atual, novo_fragmento_pendente
+
+
+def extrair_credores_de_edital(texto: str) -> list[Credor]:
+    """Extrai credores de um edital a partir de texto avulso (colado
+    diretamente, sem PDF) — mesma lógica de `_extrair_de_edital`, usada pelo
+    fluxo normal de upload de PDF.
+    """
+    pagina_ficticia = PaginaExtraida(numero=1, texto=texto)
+    credores, _, _ = _extrair_de_edital(pagina_ficticia, proximo_id=1, classe_atual=None)
+    return credores
+
+
+def parsear_edital(texto: str, arquivo_nome: str = "Edital colado") -> ResultadoExtracao:
+    """Constrói um `ResultadoExtracao` a partir do texto de um edital colado
+    diretamente (sem PDF) — mesma estrutura usada pelo resto do sistema, então
+    tabelas, gráficos, simulações de quórum/aprovação e exportações funcionam
+    normalmente sobre o resultado.
+    """
+    resultado = ResultadoExtracao(arquivo_nome=arquivo_nome, total_paginas=1)
+    resultado.credores = extrair_credores_de_edital(texto)
+    resultado.credores = _remover_linhas_de_total(resultado.credores)
+    resultado.credores = consolidar_credores_duplicados(resultado.credores)
+
+    logger.info(
+        "Edital '%s' processado: %d credores (%d ok, %d p/ revisar, %d com erro).",
+        arquivo_nome,
+        resultado.total_credores,
+        len(resultado.credores_validos),
+        len(resultado.credores_para_revisar),
+        len(resultado.credores_com_erro),
     )
     return resultado
