@@ -34,7 +34,7 @@ elif pagina == "calculadora":
     calculadora.renderizar_calculadora()
 elif pagina == "configuracoes":
     layout.renderizar_pagina_em_construcao(
-        icone="⚙️",
+        chave_icone="configuracoes",
         titulo="Configurações",
         descricao="Preferências e configurações gerais da plataforma.",
         futuras=[],

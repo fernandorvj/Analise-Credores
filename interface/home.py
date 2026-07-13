@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import streamlit as st
 
+from interface.icones import icone
 from interface.layout import navegar_para
 
 _CARDS = [
     {
-        "icone": "👥",
+        "chave_icone": "credores",
         "titulo": "Credores",
         "descricao": "Sistema completo para análise de listas de credores em Recuperação Judicial.",
         "itens": [
@@ -28,7 +29,7 @@ _CARDS = [
         "key": "home_card_credores",
     },
     {
-        "icone": "📄",
+        "chave_icone": "peticao_inicial",
         "titulo": "Petição Inicial",
         "descricao": "Importação e análise inteligente da Petição Inicial da Recuperação Judicial.",
         "itens": [
@@ -41,7 +42,7 @@ _CARDS = [
         "key": "home_card_peticao",
     },
     {
-        "icone": "🧮",
+        "chave_icone": "calculadora",
         "titulo": "Calculadora",
         "descricao": "Ferramentas financeiras para análise de aquisição de créditos.",
         "itens": [
@@ -57,11 +58,11 @@ _CARDS = [
 
 
 def _renderizar_card(card: dict) -> None:
-    with st.container(border=True):
+    with st.container(border=True, key=card["key"]):
+        st.markdown(f"## {icone(card['chave_icone'])}")
         st.markdown(
             f"""
             <div class="amf3-card-conteudo">
-                <div class="amf3-card-icone">{card['icone']}</div>
                 <div class="amf3-card-titulo">{card['titulo']}</div>
                 <div class="amf3-card-descricao">{card['descricao']}</div>
             </div>
@@ -71,7 +72,13 @@ def _renderizar_card(card: dict) -> None:
         for item in card["itens"]:
             st.markdown(f"- {item}")
         st.write("")
-        if st.button("Entrar", key=card["key"], type="primary", width="stretch"):
+        if st.button(
+            "Entrar",
+            key=f"{card['key']}_btn",
+            type="primary",
+            width="stretch",
+            icon=icone("entrar"),
+        ):
             navegar_para(card["pagina_destino"])
 
 

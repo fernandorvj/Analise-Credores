@@ -7,7 +7,6 @@ orquestração de UI sobre o que já foi calculado em `src/`.
 
 from __future__ import annotations
 
-import base64
 import hmac
 from pathlib import Path
 
@@ -21,11 +20,12 @@ from config import (
     APP_USERNAME,
     CLASSE_CORES,
     CLASSE_COR_PADRAO,
+    CLASSE_CORES_ESCURO,
+    CLASSE_COR_PADRAO_ESCURO,
     CLASSES_RJ_PADRAO,
-    CORES,
     CSS_PATH,
     EXPORTADOS_DIR,
-    LOGO_PATH,
+    GRAFICO_SUPERFICIE_ESCURA,
     NOME_EMPRESA,
     NOME_SISTEMA,
     PDFS_DIR,
@@ -48,12 +48,35 @@ from src.utils import (
 )
 
 
-def _cor_por_classe(classes: list[str]) -> dict[str, str]:
+def _cor_por_classe(classes: list[str], escuro: bool = False) -> dict[str, str]:
     """Mapa classe -> cor fixo (nunca reordenado por valor/ranking): usa a paleta
     categórica validada para as classes padrão de RJ e um cinza neutro para
-    qualquer classe fora da lista padrão (ex.: "Não identificada").
+    qualquer classe fora da lista padrão (ex.: "Não identificada"). Com
+    `escuro=True`, usa a variante reclareada para a superfície escura dos
+    gráficos (mesma ordem/hues, revalidada para contraste no escuro).
     """
-    return {classe: CLASSE_CORES.get(classe, CLASSE_COR_PADRAO) for classe in classes}
+    paleta = CLASSE_CORES_ESCURO if escuro else CLASSE_CORES
+    cor_padrao = CLASSE_COR_PADRAO_ESCURO if escuro else CLASSE_COR_PADRAO
+    return {classe: paleta.get(classe, cor_padrao) for classe in classes}
+
+
+def _aplicar_tema_escuro_grafico(fig: go.Figure) -> go.Figure:
+    """Aplica o cromado (fundo, grade, fontes) do tema escuro Flat Design 2.0
+    aos gráficos Plotly — a mesma superfície escura validada para a paleta
+    categórica de gráficos (GRAFICO_SUPERFICIE_ESCURA), com texto claro e
+    grade discreta. Não altera dados, traços ou lógica do gráfico.
+    """
+    fig.update_layout(
+        paper_bgcolor=GRAFICO_SUPERFICIE_ESCURA,
+        plot_bgcolor=GRAFICO_SUPERFICIE_ESCURA,
+        font=dict(family="Inter, 'Segoe UI', sans-serif", color="#FFFFFF", size=13),
+        title_font=dict(family="Quicksand, 'Segoe UI', sans-serif", color="#FFFFFF", size=16),
+        legend=dict(font=dict(color="#C3C2B7"), bgcolor="rgba(0,0,0,0)"),
+        margin=dict(t=48, l=8, r=8, b=8),
+    )
+    fig.update_xaxes(gridcolor="rgba(255,255,255,0.10)", zerolinecolor="rgba(255,255,255,0.16)", color="#C3C2B7")
+    fig.update_yaxes(gridcolor="rgba(255,255,255,0.10)", zerolinecolor="rgba(255,255,255,0.16)", color="#C3C2B7")
+    return fig
 
 
 def injetar_css() -> None:
@@ -75,12 +98,23 @@ def verificar_autenticacao() -> bool:
     if st.session_state.get("autenticado"):
         return True
 
-    st.markdown(f"### 🔒 {NOME_SISTEMA}")
-    st.caption(f"{NOME_EMPRESA} — acesso restrito")
-    with st.form("form_login"):
-        usuario = st.text_input("Usuário")
-        senha = st.text_input("Senha", type="password")
-        entrar = st.form_submit_button("Entrar")
+    from interface.icones import icone
+
+    st.markdown('<div class="amf3-login-fundo"></div>', unsafe_allow_html=True)
+
+    with st.container(key="amf3_login_card"):
+        st.markdown(f"## {icone('cadeado')}")
+        st.markdown(f'<div class="amf3-login-titulo">{NOME_SISTEMA}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="amf3-login-subtitulo">{NOME_EMPRESA} — acesso restrito</div>',
+            unsafe_allow_html=True,
+        )
+        with st.form("form_login"):
+            usuario = st.text_input("Usuário")
+            senha = st.text_input("Senha", type="password")
+            entrar = st.form_submit_button(
+                "Entrar", icon=icone("entrar"), width="stretch", type="primary"
+            )
 
     if entrar:
         usuario_ok = hmac.compare_digest(usuario, APP_USERNAME) if APP_USERNAME else True
@@ -94,28 +128,13 @@ def verificar_autenticacao() -> bool:
 
 
 def renderizar_cabecalho() -> None:
-    """Cabeçalho institucional: faixa em gradiente indigo (identidade AMF3) com
-    a logo embutida em base64 (necessário para exibir dentro de HTML customizado
-    do Streamlit, que não serve arquivos locais por caminho relativo).
+    """Título compacto do módulo Credores, consistente com o cabeçalho global
+    da plataforma (que já mostra logo/nome/usuário) — evita empilhar dois
+    banners grandes na mesma página.
     """
-    logo_html = ""
-    if LOGO_PATH.exists():
-        logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-        logo_html = f'<img src="data:image/png;base64,{logo_b64}" class="amf3-hero-logo" alt="{NOME_EMPRESA}" />'
+    from interface.layout import renderizar_titulo_pagina
 
-    st.markdown(
-        f"""
-        <div class="amf3-hero">
-            <div class="amf3-hero-dots"></div>
-            {logo_html}
-            <div class="amf3-hero-texto">
-                <h1>{NOME_SISTEMA}</h1>
-                <p>{NOME_EMPRESA} — Plataforma de Análise de Credores em Recuperação Judicial</p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    renderizar_titulo_pagina("credores", NOME_SISTEMA)
 
 
 def renderizar_upload() -> ResultadoExtracao | None:
@@ -352,7 +371,7 @@ def renderizar_graficos(resultado: ResultadoExtracao) -> None:
         st.info("Sem dados suficientes para gerar gráficos.")
         return
 
-    mapa_cores = _cor_por_classe(list(df_classe["Classe"]))
+    mapa_cores = _cor_por_classe(list(df_classe["Classe"]), escuro=True)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -361,24 +380,28 @@ def renderizar_graficos(resultado: ResultadoExtracao) -> None:
             color_discrete_map=mapa_cores, title="Valor Total por Classe",
         )
         fig_barras.update_layout(showlegend=False)
-        st.plotly_chart(fig_barras, width="stretch")
+        _aplicar_tema_escuro_grafico(fig_barras)
+        with st.container(key="amf3_grafico_barras"):
+            st.plotly_chart(fig_barras, width="stretch")
     with col2:
         fig_pizza = px.pie(
             df_classe, names="Classe", values="Valor Total",
             color="Classe", color_discrete_map=mapa_cores, title="Participação por Classe",
         )
-        st.plotly_chart(fig_pizza, width="stretch")
+        _aplicar_tema_escuro_grafico(fig_pizza)
+        with st.container(key="amf3_grafico_pizza"):
+            st.plotly_chart(fig_pizza, width="stretch")
 
     df_analitica = analise_quorum.tabela_analitica(resultado.credores)
     if not df_analitica.empty:
         fig_pareto = go.Figure()
         fig_pareto.add_bar(
             x=df_analitica["Ranking"], y=df_analitica["Valor"], name="Valor",
-            marker_color=CORES["grafico_indigo"],
+            marker_color=CLASSE_CORES_ESCURO["Classe I - Trabalhista"],
         )
         fig_pareto.add_scatter(
             x=df_analitica["Ranking"], y=df_analitica["Participação Acumulada"] * 100,
-            name="% Acumulado", yaxis="y2", marker_color=CORES["destaque"],
+            name="% Acumulado", yaxis="y2", marker_color=CLASSE_CORES_ESCURO["Classe II - Garantia Real"],
         )
         fig_pareto.update_layout(
             title="Concentração de Credores (Curva de Pareto)",
@@ -386,7 +409,9 @@ def renderizar_graficos(resultado: ResultadoExtracao) -> None:
             yaxis2=dict(title="% Acumulado", overlaying="y", side="right", range=[0, 100]),
             xaxis=dict(title="Ranking"),
         )
-        st.plotly_chart(fig_pareto, width="stretch")
+        _aplicar_tema_escuro_grafico(fig_pareto)
+        with st.container(key="amf3_grafico_pareto"):
+            st.plotly_chart(fig_pareto, width="stretch")
 
 
 def _opcoes_classe(resultado: ResultadoExtracao) -> list[str]:

@@ -12,7 +12,7 @@ from interface.layout import renderizar_pagina_em_construcao
 
 def renderizar_peticao_inicial() -> None:
     renderizar_pagina_em_construcao(
-        icone="📄",
+        chave_icone="peticao_inicial",
         titulo="Petição Inicial",
         descricao=(
             "Importação e análise inteligente da Petição Inicial da Recuperação Judicial."

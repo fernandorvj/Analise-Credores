@@ -1,6 +1,10 @@
 /* Identidade visual AMF3 Capital — derivada de Modelos/Logo Programa.png e do
    material institucional (Modelos/*.pdf). Mantenha os valores abaixo em sincronia
-   manual com o dicionário CORES em config.py. */
+   manual com o dicionário CORES em config.py.
+
+   Design System: sidebar escura (gradiente indigo→carvão) + canvas claro com
+   cards elevados — referência Power BI/Salesforce/Linear. Ícones via Material
+   Symbols nativo do Streamlit (ver interface/icones.py), não SVG à mão. */
 
 @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
@@ -9,13 +13,21 @@
     --amf3-indigo-claro: #3633CC;  /* variante p/ UI e gráficos */
     --amf3-carvao: #373435;        /* carvão da marca (texto principal) */
     --amf3-ambar: #B87A12;
-    --amf3-fundo: #F0F0F0;
+    --amf3-fundo: #FAFAFA;         /* canvas principal — claro e neutro */
     --amf3-fundo-card: #FFFFFF;
+    --amf3-borda: rgba(36, 34, 136, 0.10);
+    --amf3-texto-mudo: #6b6966;
     --amf3-sucesso: #0CA30C;
     --amf3-alerta: #FAB219;
     --amf3-erro: #D03B3B;
+    --amf3-info: #3633CC;
     --amf3-fonte-titulo: 'Quicksand', 'Segoe UI', sans-serif;
     --amf3-fonte-corpo: 'Inter', 'Segoe UI', sans-serif;
+    --amf3-raio: 16px;
+    --amf3-raio-pequeno: 10px;
+    --amf3-sombra: 0 2px 12px rgba(36, 34, 136, 0.10);
+    --amf3-sombra-hover: 0 8px 24px rgba(36, 34, 136, 0.16);
+    --amf3-transicao: 150ms ease;
 }
 
 /* ---------- Base ---------- */
@@ -34,72 +46,230 @@ h1, h2, h3, h4, h5,
     color: var(--amf3-carvao);
 }
 
-/* ---------- Cabeçalho (hero) ---------- */
-
-.amf3-hero {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 1.75rem;
-    padding: 1.75rem 2rem;
-    margin-bottom: 1.5rem;
-    border-radius: 16px;
-    overflow: hidden;
-    background: linear-gradient(120deg, var(--amf3-carvao) 0%, var(--amf3-indigo) 55%, var(--amf3-indigo-claro) 100%);
-    box-shadow: 0 4px 18px rgba(36, 34, 136, 0.18);
+@media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
 }
 
-.amf3-hero-dots {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 220px;
-    height: 100%;
-    opacity: 0.35;
-    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.55) 1.5px, transparent 1.5px);
-    background-size: 16px 16px;
-    -webkit-mask-image: linear-gradient(to left, black, transparent);
-    mask-image: linear-gradient(to left, black, transparent);
+/* ---------- Responsividade ---------- */
+/* st.columns já empilha nativamente em telas estreitas; aqui só ajustamos o
+   alinhamento de blocos que dependiam da largura da coluna (ex.: bloco do
+   usuário no cabeçalho, alinhado à direita apenas quando há espaço). */
+@media (max-width: 640px) {
+    .amf3-appbar-titulo, .amf3-appbar-usuario {
+        text-align: center;
+    }
 }
 
-.amf3-hero-logo {
-    height: 42px;
-    width: auto;
-    filter: brightness(0) invert(1);
-    position: relative;
-    z-index: 1;
-    flex-shrink: 0;
+/* ---------- Tela de login ---------- */
+
+.amf3-login-fundo {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(135deg, var(--amf3-carvao) 0%, var(--amf3-indigo) 55%, var(--amf3-indigo-claro) 100%);
+    background-image:
+        radial-gradient(circle, rgba(255, 255, 255, 0.35) 1.5px, transparent 1.5px),
+        linear-gradient(135deg, var(--amf3-carvao) 0%, var(--amf3-indigo) 55%, var(--amf3-indigo-claro) 100%);
+    background-size: 20px 20px, cover;
 }
 
-.amf3-hero-texto {
-    position: relative;
-    z-index: 1;
+.st-key-amf3_login_card {
+    max-width: 420px;
+    margin: 6vh auto 0 auto;
+    padding: 2.5rem 2.25rem 2rem 2.25rem;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 20px 60px rgba(11, 10, 40, 0.35);
+    text-align: center;
+    animation: amf3-login-entra 0.5s ease;
 }
 
-.amf3-hero-texto h1 {
+@keyframes amf3-login-entra {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.st-key-amf3_login_card h2 {
+    margin: 0 0 0.25rem 0;
+}
+
+.st-key-amf3_login_card h2 [data-testid="stIconMaterial"] {
+    font-size: 2.2rem !important;
+    color: var(--amf3-indigo);
+}
+
+.amf3-login-titulo {
     font-family: var(--amf3-fonte-titulo);
     font-weight: 700;
-    color: #FFFFFF !important;
-    margin: 0;
-    font-size: 1.9rem;
-    line-height: 1.2;
+    color: var(--amf3-indigo);
+    font-size: 1.5rem;
+    margin: 0.1rem 0 0.15rem 0;
 }
 
-.amf3-hero-texto p {
+.amf3-login-subtitulo {
     font-family: var(--amf3-fonte-corpo);
-    color: rgba(255, 255, 255, 0.82);
-    margin: 0.3rem 0 0 0;
-    font-size: 0.95rem;
+    color: var(--amf3-texto-mudo);
+    font-size: 0.88rem;
+    margin-bottom: 1.4rem;
+}
+
+.st-key-amf3_login_card [data-testid="stForm"] {
+    border: none;
+    padding: 0;
+}
+
+/* ---------- Sidebar (menu lateral) ---------- */
+
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, var(--amf3-carvao) 0%, var(--amf3-indigo) 100%);
+    background-image:
+        radial-gradient(circle, rgba(255, 255, 255, 0.06) 1.2px, transparent 1.2px),
+        linear-gradient(180deg, var(--amf3-carvao) 0%, var(--amf3-indigo) 100%);
+    background-size: 18px 18px, cover;
+}
+
+[data-testid="stSidebar"] * {
+    color: #FFFFFF;
+}
+
+[data-testid="stSidebar"] [data-testid="stImage"] {
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0.5rem;
+    margin-bottom: 0.5rem;
+    background: rgba(255, 255, 255, 0.07);
+    border-radius: var(--amf3-raio);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+[data-testid="stSidebar"] [data-testid="stImage"] img {
+    filter: brightness(0) invert(1);
+}
+
+[data-testid="stSidebar"] h4 {
+    font-family: var(--amf3-fonte-titulo);
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0.5rem 0 0.75rem 0;
+}
+
+[data-testid="stSidebar"] .stButton > button {
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 600;
+    text-align: left;
+    justify-content: flex-start;
+    border: none;
+    border-radius: var(--amf3-raio-pequeno);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.85);
+    transition: background var(--amf3-transicao), color var(--amf3-transicao);
+}
+
+[data-testid="stSidebar"] .stButton > button:hover {
+    background: rgba(255, 255, 255, 0.10);
+    color: #FFFFFF;
+}
+
+[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+    background: rgba(184, 122, 18, 0.22);
+    color: #FFFFFF;
+    border-left: 3px solid var(--amf3-ambar);
+}
+
+[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+    background: rgba(184, 122, 18, 0.32);
+}
+
+[data-testid="stSidebar"] hr {
+    border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* ---------- Barra de navegação (topo, todas as páginas) ---------- */
+
+.amf3-appbar-titulo {
+    text-align: center;
+}
+
+.amf3-appbar-titulo h2 {
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 700;
+    color: var(--amf3-indigo);
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.amf3-appbar-subtitulo {
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 600;
+    color: var(--amf3-carvao);
+    margin: 0.1rem 0 0 0;
+    font-size: 0.9rem;
+}
+
+.amf3-appbar-institucional {
+    font-family: var(--amf3-fonte-corpo);
+    color: var(--amf3-texto-mudo);
+    margin: 0.15rem 0 0 0;
+    font-size: 0.78rem;
+}
+
+.amf3-appbar-usuario {
+    text-align: right;
+    margin-bottom: 0.4rem;
+}
+
+.amf3-appbar-usuario-nome {
+    display: block;
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 700;
+    color: var(--amf3-carvao);
+    font-size: 0.92rem;
+}
+
+.amf3-appbar-usuario-perfil {
+    display: block;
+    font-family: var(--amf3-fonte-corpo);
+    color: var(--amf3-texto-mudo);
+    font-size: 0.76rem;
+}
+
+/* ---------- Título de página (substitui o hero grande dentro dos módulos) ---------- */
+
+.st-key-amf3_titulo_pagina h2 {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 700;
+    color: var(--amf3-carvao);
+    margin: 0.25rem 0 1.25rem 0;
+    font-size: 1.55rem;
+}
+
+.st-key-amf3_titulo_pagina h2 [data-testid="stIconMaterial"] {
+    color: var(--amf3-indigo);
+    font-size: 1.7rem !important;
 }
 
 /* ---------- KPIs (st.metric) ---------- */
 
 [data-testid="stMetric"] {
     background: var(--amf3-fundo-card);
-    border-radius: 12px;
+    border-radius: var(--amf3-raio-pequeno);
     padding: 1rem 1.1rem;
+    border: 1px solid var(--amf3-borda);
     border-left: 4px solid var(--amf3-ambar);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    box-shadow: var(--amf3-sombra);
+    transition: box-shadow var(--amf3-transicao), transform var(--amf3-transicao);
+}
+
+[data-testid="stMetric"]:hover {
+    box-shadow: var(--amf3-sombra-hover);
+    transform: translateY(-1px);
 }
 
 [data-testid="stMetricLabel"] {
@@ -110,6 +280,7 @@ h1, h2, h3, h4, h5,
 [data-testid="stMetricValue"] {
     font-family: var(--amf3-fonte-titulo);
     color: var(--amf3-indigo);
+    font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Botões ---------- */
@@ -121,13 +292,14 @@ h1, h2, h3, h4, h5,
     border: 1.5px solid var(--amf3-indigo);
     color: var(--amf3-indigo);
     background: var(--amf3-fundo-card);
-    transition: background 0.15s ease, color 0.15s ease;
+    transition: background var(--amf3-transicao), color var(--amf3-transicao), box-shadow var(--amf3-transicao);
 }
 
 .stButton > button:hover {
     background: var(--amf3-indigo);
     color: #FFFFFF;
     border-color: var(--amf3-indigo);
+    box-shadow: var(--amf3-sombra);
 }
 
 .stButton > button[kind="primary"] {
@@ -139,20 +311,97 @@ h1, h2, h3, h4, h5,
 .stButton > button[kind="primary"]:hover {
     background: var(--amf3-indigo-claro);
     border-color: var(--amf3-indigo-claro);
+    box-shadow: var(--amf3-sombra-hover);
 }
 
 .stDownloadButton > button {
     border-radius: 999px;
     font-family: var(--amf3-fonte-titulo);
     font-weight: 600;
+    transition: box-shadow var(--amf3-transicao);
+}
+
+.stDownloadButton > button:hover {
+    box-shadow: var(--amf3-sombra);
+}
+
+/* ---------- Formulários ---------- */
+
+.stTextInput input, .stNumberInput input, .stSelectbox > div, .stTextArea textarea {
+    border-radius: var(--amf3-raio-pequeno) !important;
+    font-family: var(--amf3-fonte-corpo);
+}
+
+.stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
+    border-color: var(--amf3-indigo) !important;
+    box-shadow: 0 0 0 2px rgba(36, 34, 136, 0.15) !important;
+}
+
+.stTextInput input:disabled, .stNumberInput input:disabled, .stTextArea textarea:disabled {
+    background: rgba(55, 52, 53, 0.05) !important;
+    color: var(--amf3-texto-mudo) !important;
+    opacity: 1;
+}
+
+/* ---------- Estados de foco (acessibilidade/teclado) ---------- */
+
+.stButton > button:focus-visible,
+.stDownloadButton > button:focus-visible,
+.stTextInput input:focus-visible,
+.stSelectbox > div:focus-within,
+.stMultiSelect > div:focus-within {
+    outline: 2px solid var(--amf3-indigo-claro) !important;
+    outline-offset: 2px;
+}
+
+/* ---------- Estados desabilitados ---------- */
+
+.stButton > button:disabled,
+.stDownloadButton > button:disabled {
+    opacity: 0.45;
+    box-shadow: none !important;
+    cursor: not-allowed;
+}
+
+/* ---------- Alertas (st.info / st.success / st.warning / st.error) ---------- */
+
+[data-testid="stAlertContainer"] {
+    border-radius: var(--amf3-raio-pequeno);
+    border: 1px solid transparent;
+    font-family: var(--amf3-fonte-corpo);
+}
+
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]) {
+    background: rgba(54, 51, 204, 0.08);
+    border-color: rgba(54, 51, 204, 0.22);
+    border-left: 4px solid var(--amf3-info);
+}
+
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]) {
+    background: rgba(12, 163, 12, 0.08);
+    border-color: rgba(12, 163, 12, 0.22);
+    border-left: 4px solid var(--amf3-sucesso);
+}
+
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {
+    background: rgba(250, 178, 25, 0.10);
+    border-color: rgba(250, 178, 25, 0.28);
+    border-left: 4px solid var(--amf3-alerta);
+}
+
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]) {
+    background: rgba(208, 59, 59, 0.08);
+    border-color: rgba(208, 59, 59, 0.22);
+    border-left: 4px solid var(--amf3-erro);
 }
 
 /* ---------- Tabelas, abas e expansores ---------- */
 
 .stDataFrame, .stTable {
-    border-radius: 10px;
+    border-radius: var(--amf3-raio-pequeno);
     overflow: hidden;
     font-family: var(--amf3-fonte-corpo);
+    box-shadow: var(--amf3-sombra);
 }
 
 .stTabs [data-baseweb="tab"] {
@@ -170,74 +419,45 @@ h1, h2, h3, h4, h5,
 }
 
 [data-testid="stExpander"] {
-    border-radius: 10px;
-    border: 1px solid rgba(36, 34, 136, 0.12);
+    border-radius: var(--amf3-raio-pequeno);
+    border: 1px solid var(--amf3-borda);
 }
 
-/* ---------- Barra de navegação (topo, todas as páginas) ---------- */
+/* ---------- Gráficos (Plotly, tema escuro Flat 2.0) ---------- */
+/* Mesma cor de fundo passada ao Plotly (paper_bgcolor/plot_bgcolor) em
+   _aplicar_tema_escuro_grafico(), para o card e o gráfico se fundirem num
+   único painel escuro flutuando sobre o canvas claro da plataforma. */
 
-.amf3-appbar-titulo {
-    text-align: center;
+[class*="st-key-amf3_grafico_"] {
+    background: #1B1930;
+    border-radius: var(--amf3-raio);
+    padding: 0.5rem 0.75rem 0.75rem 0.75rem;
+    box-shadow: var(--amf3-sombra);
+    margin-bottom: 0.5rem;
 }
 
-.amf3-appbar-titulo h2 {
-    font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
-    color: var(--amf3-indigo);
-    margin: 0;
-    font-size: 1.6rem;
-}
+/* ---------- Badges (st.badge) ---------- */
 
-.amf3-appbar-subtitulo {
+[data-testid="stBadge"] {
     font-family: var(--amf3-fonte-titulo);
     font-weight: 600;
-    color: var(--amf3-carvao);
-    margin: 0.15rem 0 0 0;
-    font-size: 0.95rem;
-}
-
-.amf3-appbar-institucional {
-    font-family: var(--amf3-fonte-corpo);
-    color: #6b6966;
-    margin: 0.2rem 0 0 0;
-    font-size: 0.8rem;
-}
-
-.amf3-appbar-usuario {
-    text-align: right;
-    margin-bottom: 0.4rem;
-}
-
-.amf3-appbar-usuario-nome {
-    display: block;
-    font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
-    color: var(--amf3-carvao);
-    font-size: 0.95rem;
-}
-
-.amf3-appbar-usuario-perfil {
-    display: block;
-    font-family: var(--amf3-fonte-corpo);
-    color: #6b6966;
-    font-size: 0.78rem;
+    border-radius: 999px;
 }
 
 /* ---------- Cards da Home ---------- */
 
 .amf3-card-conteudo {
     padding: 0.25rem 0.1rem 0.75rem 0.1rem;
-    transition: transform 0.15s ease;
 }
 
-.amf3-card-conteudo:hover {
-    transform: translateY(-2px);
+[class*="st-key-home_card_"] h2 {
+    margin: 0 0 0.4rem 0;
 }
 
-.amf3-card-icone {
-    font-size: 2.4rem;
+[class*="st-key-home_card_"] h2 [data-testid="stIconMaterial"] {
+    font-size: 2.4rem !important;
     line-height: 1;
-    margin-bottom: 0.4rem;
+    color: var(--amf3-indigo);
 }
 
 .amf3-card-titulo {
@@ -255,9 +475,17 @@ h1, h2, h3, h4, h5,
     margin-bottom: 0.6rem;
 }
 
+[data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo),
 [data-testid="stVerticalBlock"] > [style*="border"] {
-    box-shadow: 0 2px 10px rgba(36, 34, 136, 0.08);
-    transition: box-shadow 0.15s ease;
+    border-radius: var(--amf3-raio) !important;
+    box-shadow: var(--amf3-sombra);
+    transition: box-shadow var(--amf3-transicao), transform var(--amf3-transicao);
+}
+
+[data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo):hover,
+[data-testid="stVerticalBlock"] > [style*="border"]:hover {
+    box-shadow: var(--amf3-sombra-hover);
+    transform: translateY(-3px);
 }
 
 /* ---------- Rodapé ---------- */

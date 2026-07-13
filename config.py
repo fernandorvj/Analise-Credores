@@ -30,7 +30,13 @@ EXPORTADOS_DIR = DOCUMENTOS_DIR / "exportados"
 LOGS_DIR = BASE_DIR / "logs"
 
 for _dir in (PDFS_DIR, MODELOS_WORD_DIR, EXPORTADOS_DIR, LOGS_DIR, IDENTIDADE_VISUAL_DIR):
-    _dir.mkdir(parents=True, exist_ok=True)
+    try:
+        _dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Alguns ambientes hospedados restringem escrita fora de diretórios
+        # específicos — uma pasta auxiliar não criável não pode derrubar o
+        # app inteiro na importação (isso acontecia antes desta blindagem).
+        pass
 
 # --- Segredos ------------------------------------------------------------
 
@@ -79,11 +85,12 @@ CORES = {
     "primaria": "#242288",       # indigo da marca (logo "3", títulos, UI primária)
     "secundaria": "#373435",     # carvão da marca (texto "AMF", texto principal)
     "destaque": "#B87A12",       # âmbar (acento, categórico slot 2)
-    "fundo": "#F0F0F0",          # cinza claro dos materiais institucionais
+    "fundo": "#FAFAFA",          # canvas claro do redesign (evoluído do cinza institucional)
     "texto": "#373435",
     "sucesso": "#0CA30C",        # status: ok
     "alerta": "#FAB219",         # status: revisar
     "erro": "#D03B3B",           # status: erro
+    "informacao": "#3633CC",     # status: informativo (mesmo tom do indigo claro, já validado)
     "grafico_indigo": "#3633CC", # indigo p/ gráficos de série única (mesmo valor de classe_1)
 }
 
@@ -97,6 +104,20 @@ CLASSE_CORES = {
     "Classe IV - ME/EPP": "#9C3D8C",
 }
 CLASSE_COR_PADRAO = "#8A8780"  # cinza neutro p/ classes fora da lista padrão (ex.: "Não identificada")
+
+# Variante da paleta categórica para os gráficos em modo escuro (Flat Design
+# 2.0 / dashboards escuros) — mesmas 4 classes/mesma ordem, hues reclareados
+# para a superfície escura dos gráficos (GRAFICO_SUPERFICIE_ESCURA), validados
+# com o validador de paleta categórica (dataviz skill): banda de luminosidade
+# OKLCH 0.48–0.67, contraste ≥ 3:1, ΔE mínimo adjacente 20.1.
+CLASSE_CORES_ESCURO = {
+    "Classe I - Trabalhista": "#6D6BE0",
+    "Classe II - Garantia Real": "#B4830E",
+    "Classe III - Quirografário": "#219A85",
+    "Classe IV - ME/EPP": "#C25FB0",
+}
+CLASSE_COR_PADRAO_ESCURO = "#8A8780"
+GRAFICO_SUPERFICIE_ESCURA = "#1B1930"
 
 NOME_EMPRESA = "AMF3 Capital"
 NOME_SISTEMA = "RJ Análise de Credores"

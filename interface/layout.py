@@ -19,14 +19,15 @@ from config import (
     TEXTO_INSTITUCIONAL,
     VERSAO_SISTEMA,
 )
+from interface.icones import icone
 
-# (chave interna da página, rótulo com ícone exibido no menu)
+# (chave interna da página, rótulo exibido no menu, chave do ícone)
 PAGINAS = [
-    ("home", "🏠 Home"),
-    ("credores", "👥 Credores"),
-    ("peticao_inicial", "📄 Petição Inicial"),
-    ("calculadora", "🧮 Calculadora"),
-    ("configuracoes", "⚙️ Configurações"),
+    ("home", "Home", "home"),
+    ("credores", "Credores", "credores"),
+    ("peticao_inicial", "Petição Inicial", "peticao_inicial"),
+    ("calculadora", "Calculadora", "calculadora"),
+    ("configuracoes", "Configurações", "configuracoes"),
 ]
 
 
@@ -53,13 +54,13 @@ def fazer_logout() -> None:
 
 def renderizar_cabecalho_app() -> None:
     """Cabeçalho fixo no topo de toda página pós-login: logo, identidade da
-    plataforma e, à direita, usuário logado + botões Home/Sair.
+    plataforma e, à direita, usuário logado + botões Home/Configurações/Sair.
     """
-    col_logo, col_titulo, col_usuario = st.columns([1, 3, 1.3], vertical_alignment="center")
+    col_logo, col_titulo, col_usuario = st.columns([1, 3, 1.6], vertical_alignment="center")
 
     with col_logo:
         if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), width=120)
+            st.image(str(LOGO_PATH), width=110)
 
     with col_titulo:
         st.markdown(
@@ -84,12 +85,15 @@ def renderizar_cabecalho_app() -> None:
             """,
             unsafe_allow_html=True,
         )
-        col_home, col_sair = st.columns(2)
+        col_home, col_config, col_sair = st.columns(3)
         with col_home:
-            if st.button("🏠 Home", key="topo_btn_home", width="stretch"):
+            if st.button("Home", key="topo_btn_home", icon=icone("home"), width="stretch"):
                 navegar_para("home")
+        with col_config:
+            if st.button("Config.", key="topo_btn_config", icon=icone("configuracoes"), width="stretch"):
+                navegar_para("configuracoes")
         with col_sair:
-            if st.button("🚪 Sair", key="topo_btn_sair", width="stretch"):
+            if st.button("Sair", key="topo_btn_sair", icon=icone("sair"), width="stretch"):
                 fazer_logout()
 
     st.divider()
@@ -103,14 +107,35 @@ def renderizar_menu_lateral() -> None:
         st.markdown("#### Menu")
 
         atual = pagina_atual()
-        for chave, rotulo in PAGINAS:
+        for chave, rotulo, chave_icone in PAGINAS:
             tipo = "primary" if chave == atual else "secondary"
-            if st.button(rotulo, key=f"menu_{chave}", width="stretch", type=tipo):
+            if st.button(rotulo, key=f"menu_{chave}", icon=icone(chave_icone), width="stretch", type=tipo):
                 navegar_para(chave)
 
         st.divider()
-        if st.button("🚪 Sair", key="menu_btn_sair", width="stretch"):
+        nome_usuario = APP_USERNAME or "Usuário"
+        st.markdown(
+            f"""
+            <div class="amf3-sidebar-usuario">
+                <strong>{nome_usuario}</strong><br>
+                <span style="opacity:.72;font-size:.78rem;">Administrador</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Sair", key="menu_btn_sair", icon=icone("sair"), width="stretch"):
             fazer_logout()
+
+
+def renderizar_titulo_pagina(chave_icone: str, titulo: str) -> None:
+    """Título compacto e consistente para o topo do conteúdo de uma página
+    (substitui, em cada módulo, um cabeçalho grande próprio — evita duplicar
+    banners empilhados sob o cabeçalho global da plataforma). Usa o shortcode
+    de ícone nativo do Streamlit dentro do markdown — mesmo mecanismo já usado
+    nos botões, sem depender de nenhum detalhe interno de implementação.
+    """
+    with st.container(key="amf3_titulo_pagina"):
+        st.markdown(f"## {icone(chave_icone)} {titulo}")
 
 
 def renderizar_rodape() -> None:
@@ -128,11 +153,11 @@ def renderizar_rodape() -> None:
     )
 
 
-def renderizar_pagina_em_construcao(icone: str, titulo: str, descricao: str, futuras: list[str]) -> None:
+def renderizar_pagina_em_construcao(chave_icone: str, titulo: str, descricao: str, futuras: list[str]) -> None:
     """Corpo padrão para módulos ainda não implementados (Petição Inicial,
     Calculadora, Configurações) — evita duplicar essa estrutura em cada página.
     """
-    st.markdown(f"## {icone} {titulo}")
+    renderizar_titulo_pagina(chave_icone, titulo)
     st.info("Este módulo será implementado em uma etapa futura.")
     st.write(descricao)
     if futuras:

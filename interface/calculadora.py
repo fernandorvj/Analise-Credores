@@ -12,7 +12,7 @@ from interface.layout import renderizar_pagina_em_construcao
 
 def renderizar_calculadora() -> None:
     renderizar_pagina_em_construcao(
-        icone="🧮",
+        chave_icone="calculadora",
         titulo="Calculadora",
         descricao="Ferramentas financeiras para análise de aquisição de créditos.",
         futuras=[
