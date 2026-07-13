@@ -1,0 +1,28 @@
+# Interface
+streamlit>=1.38
+
+# Leitura de PDF
+pdfplumber>=0.11
+PyMuPDF>=1.24
+
+# OCR
+pytesseract>=0.3.10
+pillow>=10.4
+
+# Dados e análise
+pandas>=2.2
+numpy>=1.26
+
+# Gráficos
+plotly>=5.24
+matplotlib>=3.8  # gráficos estáticos embutidos no relatório Word
+
+# Exportação
+openpyxl>=3.1
+python-docx>=1.1
+
+# IA
+openai>=1.40
+
+# Configuração e utilitários
+python-dotenv>=1.0

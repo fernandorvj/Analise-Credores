@@ -1,0 +1,27 @@
+# Segredos
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Logs
+logs/*.log
+
+# Documentos do usuário (não versionar PDFs/relatórios reais)
+documentos/pdfs/*
+documentos/exportados/*
+!documentos/pdfs/.gitkeep
+!documentos/exportados/.gitkeep
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Material institucional (não necessário para rodar o app)
+Modelos/
+
+# OS
+.DS_Store
+Thumbs.db

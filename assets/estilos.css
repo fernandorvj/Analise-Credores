@@ -1,0 +1,175 @@
+/* Identidade visual AMF3 Capital — derivada de Modelos/Logo Programa.png e do
+   material institucional (Modelos/*.pdf). Mantenha os valores abaixo em sincronia
+   manual com o dicionário CORES em config.py. */
+
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --amf3-indigo: #242288;        /* indigo da marca (logo, títulos) */
+    --amf3-indigo-claro: #3633CC;  /* variante p/ UI e gráficos */
+    --amf3-carvao: #373435;        /* carvão da marca (texto principal) */
+    --amf3-ambar: #B87A12;
+    --amf3-fundo: #F0F0F0;
+    --amf3-fundo-card: #FFFFFF;
+    --amf3-sucesso: #0CA30C;
+    --amf3-alerta: #FAB219;
+    --amf3-erro: #D03B3B;
+    --amf3-fonte-titulo: 'Quicksand', 'Segoe UI', sans-serif;
+    --amf3-fonte-corpo: 'Inter', 'Segoe UI', sans-serif;
+}
+
+/* ---------- Base ---------- */
+
+.stApp {
+    background-color: var(--amf3-fundo);
+    font-family: var(--amf3-fonte-corpo);
+}
+
+h1, h2, h3, h4, h5,
+.stApp [data-testid="stMarkdownContainer"] h1,
+.stApp [data-testid="stMarkdownContainer"] h2,
+.stApp [data-testid="stMarkdownContainer"] h3 {
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 700;
+    color: var(--amf3-carvao);
+}
+
+/* ---------- Cabeçalho (hero) ---------- */
+
+.amf3-hero {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 1.75rem;
+    padding: 1.75rem 2rem;
+    margin-bottom: 1.5rem;
+    border-radius: 16px;
+    overflow: hidden;
+    background: linear-gradient(120deg, var(--amf3-carvao) 0%, var(--amf3-indigo) 55%, var(--amf3-indigo-claro) 100%);
+    box-shadow: 0 4px 18px rgba(36, 34, 136, 0.18);
+}
+
+.amf3-hero-dots {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 220px;
+    height: 100%;
+    opacity: 0.35;
+    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.55) 1.5px, transparent 1.5px);
+    background-size: 16px 16px;
+    -webkit-mask-image: linear-gradient(to left, black, transparent);
+    mask-image: linear-gradient(to left, black, transparent);
+}
+
+.amf3-hero-logo {
+    height: 42px;
+    width: auto;
+    filter: brightness(0) invert(1);
+    position: relative;
+    z-index: 1;
+    flex-shrink: 0;
+}
+
+.amf3-hero-texto {
+    position: relative;
+    z-index: 1;
+}
+
+.amf3-hero-texto h1 {
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 700;
+    color: #FFFFFF !important;
+    margin: 0;
+    font-size: 1.9rem;
+    line-height: 1.2;
+}
+
+.amf3-hero-texto p {
+    font-family: var(--amf3-fonte-corpo);
+    color: rgba(255, 255, 255, 0.82);
+    margin: 0.3rem 0 0 0;
+    font-size: 0.95rem;
+}
+
+/* ---------- KPIs (st.metric) ---------- */
+
+[data-testid="stMetric"] {
+    background: var(--amf3-fundo-card);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    border-left: 4px solid var(--amf3-ambar);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+[data-testid="stMetricLabel"] {
+    font-family: var(--amf3-fonte-corpo);
+    color: var(--amf3-carvao);
+}
+
+[data-testid="stMetricValue"] {
+    font-family: var(--amf3-fonte-titulo);
+    color: var(--amf3-indigo);
+}
+
+/* ---------- Botões ---------- */
+
+.stButton > button {
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 600;
+    border-radius: 999px;
+    border: 1.5px solid var(--amf3-indigo);
+    color: var(--amf3-indigo);
+    background: var(--amf3-fundo-card);
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.stButton > button:hover {
+    background: var(--amf3-indigo);
+    color: #FFFFFF;
+    border-color: var(--amf3-indigo);
+}
+
+.stButton > button[kind="primary"] {
+    background: var(--amf3-indigo);
+    color: #FFFFFF;
+    border-color: var(--amf3-indigo);
+}
+
+.stButton > button[kind="primary"]:hover {
+    background: var(--amf3-indigo-claro);
+    border-color: var(--amf3-indigo-claro);
+}
+
+.stDownloadButton > button {
+    border-radius: 999px;
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 600;
+}
+
+/* ---------- Tabelas, abas e expansores ---------- */
+
+.stDataFrame, .stTable {
+    border-radius: 10px;
+    overflow: hidden;
+    font-family: var(--amf3-fonte-corpo);
+}
+
+.stTabs [data-baseweb="tab"] {
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 600;
+    color: var(--amf3-carvao);
+}
+
+.stTabs [aria-selected="true"] {
+    color: var(--amf3-indigo) !important;
+}
+
+.stTabs [data-baseweb="tab-highlight"] {
+    background-color: var(--amf3-indigo) !important;
+}
+
+[data-testid="stExpander"] {
+    border-radius: 10px;
+    border: 1px solid rgba(36, 34, 136, 0.12);
+}
