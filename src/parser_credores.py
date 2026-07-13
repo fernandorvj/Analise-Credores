@@ -33,7 +33,7 @@ _RE_DOCUMENTO = re.compile(
     r"|\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}"  # CNPJ: 00.000.000/0000-00
 )
 
-_RE_VALOR_MONETARIO = re.compile(r"R?\$?\s*-?\d[\d.,]*\d")
+_RE_VALOR_MONETARIO = re.compile(r"R\$\s*-?\d[\d.,]*\d")  # exige "R$": evita casar qualquer número solto (IDs, protocolos)
 
 # Ordem importa: classes mais específicas (IV, III) são checadas antes das mais
 # genéricas para blindar contra o \b não bastar em algum caso de entrada malformada.
@@ -554,11 +554,14 @@ def parsear_credores(paginas: list[PaginaExtraida], arquivo_nome: str) -> Result
             continue
 
         credores_texto = _extrair_de_texto(pagina, proximo_id)
-        # Se nenhum registro tem nome de verdade, o parser de linha não serve
-        # para o layout desta página — tenta, nesta ordem, o formato de edital
-        # ("CLASSE X - ...: NOME - R$ VALOR; ...") e o de "ficha por credor"
-        # (um campo por linha), antes de aceitar o resultado vazio.
-        if not any(c.nome != _NOME_NAO_IDENTIFICADO for c in credores_texto):
+        # Se nenhum registro tem nome E valor de verdade, o parser de linha não
+        # serve para o layout desta página (um único "match" de nome sem valor,
+        # ou vice-versa, é sinal de falso-positivo — ex.: um número de
+        # protocolo/ID confundido com documento — não de uma extração boa) —
+        # tenta, nesta ordem, o formato de edital ("CLASSE X - ...: NOME - R$
+        # VALOR; ...") e o de "ficha por credor" (um campo por linha), antes de
+        # aceitar o resultado vazio.
+        if not any(c.nome != _NOME_NAO_IDENTIFICADO and c.valor is not None for c in credores_texto):
             credores_texto, classe_atual_edital, fragmento_pendente_edital = _extrair_de_edital(
                 pagina, proximo_id, classe_atual_edital, fragmento_pendente_edital
             )
