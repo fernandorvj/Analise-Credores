@@ -589,3 +589,61 @@ def renderizar_exportacao(resultado: ResultadoExtracao) -> None:
         if st.session_state.get("_caminho_docx"):
             caminho = Path(st.session_state["_caminho_docx"])
             st.download_button("Baixar Word", caminho.read_bytes(), file_name=caminho.name)
+
+
+def renderizar_pagina_credores() -> None:
+    """Página completa do módulo Credores — upload, KPIs e todas as abas de
+    análise. Empacota, sem alterar, a mesma sequência de chamadas que antes
+    vivia diretamente em `app.py`, para que o roteador da plataforma (agora
+    com Home/menu lateral) possa tratar "Credores" como mais uma página.
+    Nenhuma lógica de negócio ou algoritmo deste módulo foi alterado.
+    """
+    renderizar_cabecalho()
+
+    resultado = renderizar_upload()
+    if resultado is None:
+        st.info("Envie um PDF da relação de credores acima para iniciar a análise.")
+        return
+
+    renderizar_kpis(resultado)
+    renderizar_avisos_reconciliacao(resultado)
+    renderizar_pendencias(resultado)
+
+    (
+        aba_tabela,
+        aba_ranking,
+        aba_graficos,
+        aba_estrategia,
+        aba_simulacoes,
+        aba_aprovacao,
+        aba_ia,
+        aba_exportacao,
+    ) = st.tabs(
+        [
+            "Tabela de Credores",
+            "Ranking",
+            "Gráficos",
+            "Análise Estratégica",
+            "Simulações de Quórum",
+            "Aprovação do Plano",
+            "IA",
+            "Exportação",
+        ]
+    )
+
+    with aba_tabela:
+        renderizar_tabela(renderizar_filtros(resultado.credores))
+    with aba_ranking:
+        renderizar_ranking(resultado)
+    with aba_graficos:
+        renderizar_graficos(resultado)
+    with aba_estrategia:
+        renderizar_estrategia(resultado)
+    with aba_simulacoes:
+        renderizar_simulacoes(resultado)
+    with aba_aprovacao:
+        renderizar_votacao_aprovacao(resultado)
+    with aba_ia:
+        renderizar_ia(resultado)
+    with aba_exportacao:
+        renderizar_exportacao(resultado)

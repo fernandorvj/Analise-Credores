@@ -101,6 +101,17 @@ CLASSE_COR_PADRAO = "#8A8780"  # cinza neutro p/ classes fora da lista padrão (
 NOME_EMPRESA = "AMF3 Capital"
 NOME_SISTEMA = "RJ Análise de Credores"
 
+# --- Plataforma (Home e navegação) -----------------------------------------
+
+NOME_PLATAFORMA = "AMF3 Capital"
+SUBTITULO_PLATAFORMA = "Plataforma de Inteligência em Recuperação Judicial"
+TEXTO_INSTITUCIONAL = (
+    "Central de gestão, análise e inteligência para operações de compra de "
+    "créditos em Recuperação Judicial."
+)
+VERSAO_SISTEMA = "1.0.0"
+DATA_ATUALIZACAO = "13/07/2026"
+
 # --- Parâmetros de análise -------------------------------------------------
 
 FAIXAS_QUORUM = [0.25, 0.33, 0.50, 0.66, 0.75, 0.90]
