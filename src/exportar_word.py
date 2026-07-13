@@ -9,7 +9,6 @@ jurídico ou financeiro).
 from __future__ import annotations
 
 import io
-from datetime import date
 from pathlib import Path
 
 import matplotlib
@@ -18,45 +17,26 @@ matplotlib.use("Agg")  # backend sem interface gráfica, necessário para servid
 import matplotlib.pyplot as plt
 import pandas as pd
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Inches
 
-from config import CLASSE_COR_PADRAO, CLASSE_CORES, CORES, LOGO_PATH, NOME_EMPRESA, NOME_SISTEMA, configurar_logging
-from src import analise_quorum, estrategia
+from config import CLASSE_COR_PADRAO, CLASSE_CORES, configurar_logging
+from src import analise_quorum, estrategia, exportar_word_base as base
 from src.models import ResultadoExtracao
 from src.utils import formatar_moeda, formatar_percentual
 
 logger = configurar_logging()
 
-_COR_PRIMARIA_RGB = RGBColor(0x24, 0x22, 0x88)
-
-
-def _cor_hex_para_rgb(cor_hex: str) -> tuple[float, float, float]:
-    cor_hex = cor_hex.lstrip("#")
-    return tuple(int(cor_hex[i : i + 2], 16) / 255 for i in (0, 2, 4))
-
 
 def _adicionar_cabecalho(doc: Document, nome_arquivo_pdf: str) -> None:
-    if LOGO_PATH.exists():
-        doc.add_picture(str(LOGO_PATH), width=Inches(1.5))
-
-    titulo = doc.add_heading(NOME_SISTEMA, level=0)
-    titulo.runs[0].font.color.rgb = _COR_PRIMARIA_RGB
-
-    subtitulo = doc.add_paragraph()
-    subtitulo.add_run(f"{NOME_EMPRESA} — Relatório de Análise de Credores").bold = True
-    subtitulo.add_run(f"\nDocumento analisado: {nome_arquivo_pdf}")
-    subtitulo.add_run(f"\nData de geração: {date.today().strftime('%d/%m/%Y')}")
-
-    aviso = doc.add_paragraph()
-    run = aviso.add_run(
-        "As análises a seguir são cenários técnicos baseados exclusivamente nos dados "
-        "extraídos do documento. Não constituem aconselhamento jurídico ou financeiro."
+    base.adicionar_capa(
+        doc,
+        nome_arquivo_pdf,
+        subtitulo_modulo="Relatório de Análise de Credores",
+        texto_aviso=(
+            "As análises a seguir são cenários técnicos baseados exclusivamente nos dados "
+            "extraídos do documento. Não constituem aconselhamento jurídico ou financeiro."
+        ),
     )
-    run.italic = True
-    run.font.size = Pt(9)
-
-    doc.add_paragraph()
 
 
 def _adicionar_resumo_executivo(doc: Document, resultado: ResultadoExtracao, resumo_executivo: str | None) -> None:
@@ -108,33 +88,10 @@ def _adicionar_avisos_reconciliacao(doc: Document, resultado: ResultadoExtracao)
         doc.add_paragraph(texto, style="List Bullet")
 
 
-def _adicionar_tabela_dataframe(doc: Document, df: pd.DataFrame, colunas_moeda: set[str] = frozenset(), colunas_percentual: set[str] = frozenset()) -> None:
-    if df.empty:
-        doc.add_paragraph("Sem dados disponíveis para esta seção.")
-        return
-
-    tabela = doc.add_table(rows=1, cols=len(df.columns))
-    tabela.style = "Light Grid Accent 1"
-    for i, coluna in enumerate(df.columns):
-        tabela.rows[0].cells[i].text = str(coluna)
-
-    for _, linha_df in df.iterrows():
-        celulas = tabela.add_row().cells
-        for i, coluna in enumerate(df.columns):
-            valor = linha_df[coluna]
-            if coluna in colunas_moeda:
-                texto = formatar_moeda(valor)
-            elif coluna in colunas_percentual:
-                texto = formatar_percentual(valor)
-            else:
-                texto = str(valor)
-            celulas[i].text = texto
-
-
 def _grafico_valor_por_classe(df_resumo_classe: pd.DataFrame) -> io.BytesIO:
     fig, ax = plt.subplots(figsize=(6.5, 3.5))
     cores = [
-        _cor_hex_para_rgb(CLASSE_CORES.get(classe, CLASSE_COR_PADRAO))
+        base.cor_hex_para_rgb(CLASSE_CORES.get(classe, CLASSE_COR_PADRAO))
         for classe in df_resumo_classe["Classe"]
     ]
     ax.bar(df_resumo_classe["Classe"], df_resumo_classe["Valor Total"], color=cores)
@@ -179,7 +136,7 @@ def exportar_word(
 
     df_resumo_classe = analise_quorum.resumo_por_classe(resultado.credores)
     doc.add_heading("Resumo por Classe", level=1)
-    _adicionar_tabela_dataframe(
+    base.adicionar_tabela_dataframe(
         doc, df_resumo_classe, colunas_moeda={"Valor Total"}, colunas_percentual={"% do Passivo Total"}
     )
 
@@ -190,7 +147,7 @@ def exportar_word(
     doc.add_heading("Ranking dos Maiores Credores", level=1)
     df_ranking = analise_quorum.ranking_maiores_credores(resultado.credores, top_n=top_n_ranking)
     colunas_ranking = [c for c in ["Ranking", "Nome", "Documento", "Classe", "Valor", "% do Passivo Total", "Participação Acumulada"] if c in df_ranking.columns]
-    _adicionar_tabela_dataframe(
+    base.adicionar_tabela_dataframe(
         doc,
         df_ranking[colunas_ranking] if not df_ranking.empty else df_ranking,
         colunas_moeda={"Valor"},
@@ -210,7 +167,7 @@ def exportar_word(
     doc.add_heading("Simulações de Formação de Quórum", level=1)
     simulacoes = estrategia.simular_formacao_quorum(resultado.credores)
     df_simulacoes = estrategia.tabela_simulacoes(simulacoes)
-    _adicionar_tabela_dataframe(
+    base.adicionar_tabela_dataframe(
         doc,
         df_simulacoes,
         colunas_moeda={"Valor Alvo", "Valor a Adquirir"},

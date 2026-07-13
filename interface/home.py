@@ -31,12 +31,19 @@ _CARDS = [
     {
         "chave_icone": "peticao_inicial",
         "titulo": "Petição Inicial",
-        "descricao": "Importação e análise inteligente da Petição Inicial da Recuperação Judicial.",
+        "descricao": (
+            "Importe uma Petição Inicial de Recuperação Judicial e obtenha uma análise "
+            "inteligente completa do processo.<br><br>O módulo realiza leitura integral do "
+            "documento, identifica os principais fatos, resume a situação da empresa, destaca "
+            "riscos, oportunidades e gera um relatório executivo estruturado com apoio de "
+            "Inteligência Artificial."
+        ),
         "itens": [
-            "Importação do PDF da Petição Inicial",
-            "Extração automática dos dados do processo",
-            "Cadastro automático do cliente",
-            "Resumo executivo e dossiê inteligente",
+            "Leitura integral do documento (com OCR quando necessário)",
+            "Resumo executivo, histórico e situação financeira da empresa",
+            "Riscos, pontos positivos e pontos de atenção, sempre justificados",
+            "Visão estratégica para aquisição de créditos e formação de quórum",
+            "Exportação do relatório completo em Word",
         ],
         "pagina_destino": "peticao_inicial",
         "key": "home_card_peticao",

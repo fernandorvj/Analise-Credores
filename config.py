@@ -24,12 +24,13 @@ CSS_PATH = ASSETS_DIR / "estilos.css"
 
 DOCUMENTOS_DIR = BASE_DIR / "documentos"
 PDFS_DIR = DOCUMENTOS_DIR / "pdfs"
+PETICOES_DIR = DOCUMENTOS_DIR / "peticoes_iniciais"
 MODELOS_WORD_DIR = DOCUMENTOS_DIR / "modelos_word"
 EXPORTADOS_DIR = DOCUMENTOS_DIR / "exportados"
 
 LOGS_DIR = BASE_DIR / "logs"
 
-for _dir in (PDFS_DIR, MODELOS_WORD_DIR, EXPORTADOS_DIR, LOGS_DIR, IDENTIDADE_VISUAL_DIR):
+for _dir in (PDFS_DIR, PETICOES_DIR, MODELOS_WORD_DIR, EXPORTADOS_DIR, LOGS_DIR, IDENTIDADE_VISUAL_DIR):
     try:
         _dir.mkdir(parents=True, exist_ok=True)
     except OSError:
