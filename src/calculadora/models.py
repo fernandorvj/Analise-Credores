@@ -144,7 +144,7 @@ class ParametrosVPL:
 
     valor_credito: Decimal
     valor_compra: Decimal
-    desagio: Decimal  # fração (0.30 = 30% de deságio sobre o valor do crédito)
+    desagio: Decimal  # fração (0.85 = 85%) — haircut do plano de RJ sobre o crédito; define o fluxo recebido, não o preço de compra
     data_base: date
     fluxo_recebimentos: list[FluxoItem]  # apenas os recebimentos esperados (sem a saída do valor_compra)
     taxa_desconto_anual: Decimal
@@ -157,7 +157,8 @@ class ResultadoVPL:
     """Saída completa da Calculadora de VPL."""
 
     parametros: ParametrosVPL
-    vpl: Decimal
+    vpl: Decimal  # valor presente do fluxo recebido (igual ao valor_economico — convenção da planilha de referência)
+    ganho_liquido: Decimal  # valor_economico − valor_compra
     valor_futuro: Decimal
     valor_economico: Decimal
     tir_anual: Decimal | None

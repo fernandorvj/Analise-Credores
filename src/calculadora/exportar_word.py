@@ -196,19 +196,23 @@ def exportar_word_vpl(resultado: ResultadoVPL, caminho_saida: str | Path) -> Pat
     base.adicionar_sumario(doc)
 
     doc.add_heading("Resumo", level=1)
+    valor_plano = p.valor_credito * (1 - p.desagio)
     doc.add_paragraph(
-        f"Aquisição de crédito de {formatar_moeda(float(p.valor_credito))} por "
-        f"{formatar_moeda(float(p.valor_compra))} ({formatar_percentual(float(p.desagio))} de deságio), "
-        f"descontado a {formatar_percentual(float(p.taxa_desconto_anual))} a.a. ({p.origem_taxa_desconto}). "
-        f"VPL estimado em {formatar_moeda(float(resultado.vpl))}."
+        f"Crédito de {formatar_moeda(float(p.valor_credito))} sujeito a deságio de "
+        f"{formatar_percentual(float(p.desagio))} no plano de recuperação judicial "
+        f"(valor a receber: {formatar_moeda(float(valor_plano))}), com aquisição avaliada por "
+        f"{formatar_moeda(float(p.valor_compra))} e fluxo descontado a "
+        f"{formatar_percentual(float(p.taxa_desconto_anual))} a.a. ({p.origem_taxa_desconto}). "
+        f"VPL (valor presente do fluxo) estimado em {formatar_moeda(float(resultado.vpl))}."
     )
 
     doc.add_heading("Entradas Utilizadas", level=1)
     df_entradas = pd.DataFrame(
         [
             {"Parâmetro": "Valor do Crédito", "Valor": formatar_moeda(float(p.valor_credito))},
+            {"Parâmetro": "Deságio do Plano de RJ", "Valor": formatar_percentual(float(p.desagio))},
+            {"Parâmetro": "Valor a Receber pelo Plano", "Valor": formatar_moeda(float(valor_plano))},
             {"Parâmetro": "Valor de Compra", "Valor": formatar_moeda(float(p.valor_compra))},
-            {"Parâmetro": "Deságio", "Valor": formatar_percentual(float(p.desagio))},
             {"Parâmetro": "Data Base", "Valor": p.data_base.strftime("%d/%m/%Y")},
             {"Parâmetro": "Taxa de Desconto (a.a.)", "Valor": formatar_percentual(float(p.taxa_desconto_anual))},
             {"Parâmetro": "Origem da Taxa de Desconto", "Valor": p.origem_taxa_desconto},
@@ -223,8 +227,9 @@ def exportar_word_vpl(resultado: ResultadoVPL, caminho_saida: str | Path) -> Pat
         "VPL e TIR seguem a metodologia XNPV/XIRR (fluxos de caixa com datas irregulares, base de "
         "365 dias/ano) — a mesma convenção usada por planilhas financeiras (Excel/Google Sheets), "
         "mais adequada que um NPV de período fixo quando os recebimentos não são uniformemente "
-        "espaçados. Valor Econômico é o valor presente apenas dos recebimentos esperados; VPL é o "
-        "Valor Econômico menos o Valor de Compra."
+        "espaçados. O deságio informado é o haircut do plano de recuperação judicial: o fluxo de "
+        "recebimentos é montado sobre o valor pós-deságio do crédito. O VPL é o valor presente "
+        "desse fluxo (quanto o crédito vale hoje); o Ganho Líquido é o VPL menos o Valor de Compra."
     )
 
     doc.add_heading("Fluxo", level=1)
@@ -241,8 +246,8 @@ def exportar_word_vpl(resultado: ResultadoVPL, caminho_saida: str | Path) -> Pat
     df_resultados = pd.DataFrame(
         [
             {"Indicador": "Valor Futuro", "Valor": formatar_moeda(float(resultado.valor_futuro))},
-            {"Indicador": "Valor Econômico", "Valor": formatar_moeda(float(resultado.valor_economico))},
-            {"Indicador": "VPL", "Valor": formatar_moeda(float(resultado.vpl))},
+            {"Indicador": "VPL (valor presente do fluxo)", "Valor": formatar_moeda(float(resultado.vpl))},
+            {"Indicador": "Ganho Líquido (VPL − Compra)", "Valor": formatar_moeda(float(resultado.ganho_liquido))},
             {
                 "Indicador": "TIR (a.a.)",
                 "Valor": formatar_percentual(float(resultado.tir_anual)) if resultado.tir_anual is not None else "Não convergiu",

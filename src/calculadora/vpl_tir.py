@@ -116,21 +116,25 @@ def calcular_resultado_vpl(parametros: ParametrosVPL) -> ResultadoVPL:
 
     Definições usadas (documentadas para auditoria):
     - **Valor Futuro**: soma nominal (sem desconto) de todos os recebimentos.
-    - **Valor Econômico**: valor presente (XNPV) apenas dos recebimentos —
-      quanto o direito creditório vale hoje, antes de considerar o custo de
-      aquisição.
-    - **VPL**: Valor Econômico menos o Valor de Compra — o ganho líquido em
-      valor presente da operação.
+    - **Valor Econômico / VPL**: valor presente (XNPV) dos recebimentos que o
+      plano de RJ efetivamente paga pelo crédito (fluxo já pós-deságio do
+      plano) — quanto o direito creditório vale hoje. O deságio aqui é o
+      haircut imposto pelo plano ao crédito, não o desconto de compra; por
+      isso o VPL exibido é o próprio valor presente do fluxo, sem subtrair o
+      Valor de Compra (mesma convenção da planilha de referência).
+    - **Ganho Líquido**: Valor Econômico menos o Valor de Compra — o ganho em
+      valor presente caso o crédito seja adquirido pelo Valor de Compra
+      informado.
     - **TIR / Taxa Efetiva**: a mesma taxa (XIRR) do fluxo completo
       (-valor_compra na data_base seguido dos recebimentos) — a "taxa
       efetiva" da operação é, por definição financeira, a sua TIR anualizada;
       exibida sob os dois rótulos pedidos porque ambos aparecem no relatório.
     - **ROI**: (Valor Futuro − Valor de Compra) / Valor de Compra — retorno
       nominal sobre o capital investido, sem considerar o tempo.
-    - **Rentabilidade**: VPL / Valor de Compra — retorno líquido em valor
-      presente sobre o capital investido.
-    - **Margem**: VPL / Valor Econômico — parcela do valor econômico do
-      crédito que corresponde a ganho líquido da operação.
+    - **Rentabilidade**: Ganho Líquido / Valor de Compra — retorno líquido em
+      valor presente sobre o capital investido.
+    - **Margem**: Ganho Líquido / Valor Econômico — parcela do valor econômico
+      do crédito que corresponde a ganho líquido da operação.
     - **Spread**: Taxa Efetiva anual − Taxa de Desconto anual (SELIC) — o
       prêmio de retorno da operação sobre a taxa livre de risco.
     """
@@ -150,7 +154,8 @@ def calcular_resultado_vpl(parametros: ParametrosVPL) -> ResultadoVPL:
 
     valor_futuro = sum((v for _, v in fluxo_corrigido), Decimal(0))
     valor_economico = arredondar(xnpv(fluxo_corrigido, parametros.taxa_desconto_anual, parametros.data_base))
-    vpl = arredondar(valor_economico - parametros.valor_compra)
+    vpl = valor_economico
+    ganho_liquido = arredondar(valor_economico - parametros.valor_compra)
 
     fluxo_completo = [(parametros.data_base, -parametros.valor_compra), *fluxo_corrigido]
     tir_anual = xirr(fluxo_completo, parametros.data_base)
@@ -159,8 +164,8 @@ def calcular_resultado_vpl(parametros: ParametrosVPL) -> ResultadoVPL:
     payback_data, payback_meses = calcular_payback(fluxo_completo, parametros.data_base)
 
     roi = (valor_futuro - parametros.valor_compra) / parametros.valor_compra
-    rentabilidade = vpl / parametros.valor_compra
-    margem = (vpl / valor_economico) if valor_economico != 0 else None
+    rentabilidade = ganho_liquido / parametros.valor_compra
+    margem = (ganho_liquido / valor_economico) if valor_economico != 0 else None
     spread = (taxa_efetiva_anual - parametros.taxa_desconto_anual) if taxa_efetiva_anual is not None else None
 
     fluxo_descontado: list[FluxoItem] = []
@@ -182,6 +187,7 @@ def calcular_resultado_vpl(parametros: ParametrosVPL) -> ResultadoVPL:
     return ResultadoVPL(
         parametros=parametros,
         vpl=vpl,
+        ganho_liquido=ganho_liquido,
         valor_futuro=arredondar(valor_futuro),
         valor_economico=valor_economico,
         tir_anual=tir_anual,

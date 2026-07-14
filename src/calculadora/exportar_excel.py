@@ -149,14 +149,15 @@ def exportar_excel_vpl(resultado: ResultadoVPL, caminho_saida: str | Path) -> Pa
 
     linhas_resumo = [
         _linha_resumo("Valor do Crédito", formatar_moeda(float(p.valor_credito))),
+        _linha_resumo("Deságio do Plano de RJ", formatar_percentual(float(p.desagio))),
+        _linha_resumo("Valor a Receber pelo Plano", formatar_moeda(float(p.valor_credito * (1 - p.desagio)))),
         _linha_resumo("Valor de Compra", formatar_moeda(float(p.valor_compra))),
-        _linha_resumo("Deságio", formatar_percentual(float(p.desagio))),
         _linha_resumo("Taxa de Desconto (a.a.)", formatar_percentual(float(p.taxa_desconto_anual))),
         _linha_resumo("Origem da Taxa de Desconto", p.origem_taxa_desconto),
         _linha_resumo("Correção Monetária (a.a.)", formatar_percentual(float(p.correcao_monetaria_anual))),
         _linha_resumo("Valor Futuro", formatar_moeda(float(resultado.valor_futuro))),
-        _linha_resumo("Valor Econômico", formatar_moeda(float(resultado.valor_economico))),
-        _linha_resumo("VPL", formatar_moeda(float(resultado.vpl))),
+        _linha_resumo("VPL (valor presente do fluxo)", formatar_moeda(float(resultado.vpl))),
+        _linha_resumo("Ganho Líquido (VPL − Compra)", formatar_moeda(float(resultado.ganho_liquido))),
         _linha_resumo(
             "TIR (a.a.)", formatar_percentual(float(resultado.tir_anual)) if resultado.tir_anual is not None else "-"
         ),

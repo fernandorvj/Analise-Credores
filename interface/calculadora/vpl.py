@@ -15,11 +15,18 @@ import streamlit as st
 from config import CORES, EXPORTADOS_DIR
 from interface.calculadora.componentes import aplicar_tema_escuro_grafico, container_grafico, editor_fluxo, renderizar_kpis, salvar_cenario
 from interface.icones import icone
-from src.calculadora.amortizacao import adicionar_periodos
+from src.calculadora.amortizacao import gerar_cronograma
 from src.calculadora.exportar_excel import exportar_excel_vpl
 from src.calculadora.exportar_word import exportar_word_vpl
 from src.calculadora.fluxo import novo_item
-from src.calculadora.models import ParametrosVPL, Periodicidade, TipoFluxoItem
+from src.calculadora.models import (
+    ParametrosFinanciamento,
+    ParametrosVPL,
+    Periodicidade,
+    RegimeJuros,
+    SistemaAmortizacao,
+    TipoFluxoItem,
+)
 from src.calculadora.selic import ORIGEM_MANUAL, obter_selic_bacen
 from src.calculadora.vpl_tir import calcular_resultado_vpl
 from src.utils import formatar_moeda, formatar_percentual
@@ -65,49 +72,82 @@ def _bloco_taxa_desconto() -> tuple[Decimal, str]:
     return selic["valor_anual"], selic["origem"]
 
 
-def _formulario_credito() -> tuple[Decimal, Decimal, Decimal, date] | None:
+def _formulario_credito() -> tuple[Decimal, Decimal, Decimal, Decimal, date] | None:
     col1, col2 = st.columns(2)
     with col1:
         valor_credito = st.number_input("Valor do Crédito (R$)", min_value=0.0, value=100000.0, step=1000.0)
         data_base = st.date_input("Data Base", value=date.today(), key="vpl_data_base")
     with col2:
-        override_compra = st.checkbox("Informar Valor de Compra diretamente (em vez de Deságio)")
-        if override_compra:
-            valor_compra_input = st.number_input("Valor de Compra (R$)", min_value=0.01, value=60000.0, step=1000.0)
-            desagio = Decimal(1) - (Decimal(str(valor_compra_input)) / Decimal(str(valor_credito))) if valor_credito else Decimal(0)
-            valor_compra = Decimal(str(valor_compra_input))
-        else:
-            desagio_percentual = st.number_input("Deságio (%)", min_value=0.0, max_value=99.0, value=40.0, step=1.0)
-            desagio = Decimal(str(desagio_percentual)) / Decimal(100)
-            valor_compra = Decimal(str(valor_credito)) * (Decimal(1) - desagio)
-            st.caption(f"Valor de compra calculado: {formatar_moeda(float(valor_compra))}")
+        desagio_percentual = st.number_input(
+            "Deságio do plano de RJ (%)",
+            min_value=0.0,
+            max_value=99.0,
+            value=40.0,
+            step=1.0,
+            help="Haircut que o plano de recuperação judicial impõe ao crédito. "
+            "O fluxo de recebimentos é montado sobre o valor pós-deságio — não é o desconto de compra.",
+        )
+        desagio = Decimal(str(desagio_percentual)) / Decimal(100)
+        valor_plano = Decimal(str(valor_credito)) * (Decimal(1) - desagio)
+        st.caption(f"Valor a receber pelo plano: {formatar_moeda(float(valor_plano))}")
+        valor_compra_input = st.number_input(
+            "Valor de Compra (R$)",
+            min_value=0.01,
+            value=60000.0,
+            step=1000.0,
+            help="Quanto você pretende pagar pelo crédito. Não entra no VPL (que é o valor presente do fluxo); "
+            "é usado em TIR, Payback, ROI, Ganho Líquido, Rentabilidade e Margem.",
+        )
+        valor_compra = Decimal(str(valor_compra_input))
 
     try:
-        return Decimal(str(valor_credito)), valor_compra, desagio, data_base
+        return Decimal(str(valor_credito)), valor_plano, valor_compra, desagio, data_base
     except InvalidOperation:
         st.error("Não foi possível interpretar os valores informados.")
         return None
 
 
-def _gerar_fluxo_automatico(valor_credito: Decimal, data_base: date) -> None:
+def _gerar_fluxo_automatico(valor_plano: Decimal, data_base: date) -> None:
     with st.form("form_vpl_plano"):
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
             parcelas = st.number_input("Quantidade de Parcelas", min_value=1, value=12, step=1)
-        with col2:
             periodicidade = st.selectbox("Periodicidade", list(Periodicidade), format_func=lambda p: p.value, index=0)
-        with col3:
+        with col2:
             carencia = st.number_input("Carência (períodos até o 1º recebimento)", min_value=0, value=0, step=1)
+            juros_am_percentual = st.number_input(
+                "Juros do plano (% a.m.)",
+                min_value=0.0,
+                value=0.0,
+                step=0.01,
+                format="%.4f",
+                help="Juros/correção previstos no plano de RJ (ex.: 2,5% a.a. ≈ 0,21% a.m.). "
+                "Capitalizam o saldo durante a carência e compõem a parcela (Tabela Price). "
+                "Se informados aqui, deixe a Correção Monetária abaixo em 0 para não contar duas vezes.",
+            )
 
         gerar = st.form_submit_button("Gerar Plano de Pagamento Automático", icon=icone("vpl"))
 
     if gerar:
-        valor_parcela = valor_credito / Decimal(int(parcelas))
-        fluxo = [
-            novo_item(
-                i, adicionar_periodos(data_base, int(carencia) + i, periodicidade), f"Parcela {i}", TipoFluxoItem.PARCELA, valor_parcela
+        juros_am = Decimal(str(juros_am_percentual)) / Decimal(100)
+        cronograma = gerar_cronograma(
+            ParametrosFinanciamento(
+                valor_financiado=valor_plano,
+                valor_entrada=Decimal(0),
+                taxa=juros_am,
+                periodicidade_taxa=Periodicidade.MENSAL,
+                periodicidade_parcela=periodicidade,
+                prazo=int(parcelas),
+                carencia=int(carencia),
+                data_inicial=data_base,
+                sistema=SistemaAmortizacao.PRICE,
+                regime=RegimeJuros.COMPOSTO,
+                carencia_paga_juros=False,
             )
-            for i in range(1, int(parcelas) + 1)
+        )
+        fluxo = [
+            novo_item(i, parcela.data, f"Parcela {i}", TipoFluxoItem.PARCELA, parcela.valor_parcela)
+            for i, parcela in enumerate((p for p in cronograma.parcelas if not p.carencia), start=1)
         ]
         st.session_state["calc_vpl_fluxo"] = fluxo
         st.session_state.pop("calc_vpl_editor", None)
@@ -148,7 +188,7 @@ def _renderizar_resultado(resultado) -> None:
     renderizar_kpis(
         [
             ("Valor Futuro", formatar_moeda(float(resultado.valor_futuro))),
-            ("Valor Econômico", formatar_moeda(float(resultado.valor_economico))),
+            ("Ganho Líquido (VPL − Compra)", formatar_moeda(float(resultado.ganho_liquido))),
             ("Rentabilidade", formatar_percentual(float(resultado.rentabilidade)) if resultado.rentabilidade is not None else "-"),
             ("Margem", formatar_percentual(float(resultado.margem)) if resultado.margem is not None else "-"),
         ]
@@ -211,7 +251,7 @@ def renderizar_vpl() -> None:
     dados_credito = _formulario_credito()
     if dados_credito is None:
         return
-    valor_credito, valor_compra, desagio, data_base = dados_credito
+    valor_credito, valor_plano, valor_compra, desagio, data_base = dados_credito
 
     taxa_desconto, origem_taxa = _bloco_taxa_desconto()
 
@@ -220,7 +260,7 @@ def renderizar_vpl() -> None:
     correcao = Decimal(str(correcao_percentual)) / Decimal(100)
 
     st.markdown("#### Plano de Pagamento")
-    _gerar_fluxo_automatico(valor_credito, data_base)
+    _gerar_fluxo_automatico(valor_plano, data_base)
 
     if "calc_vpl_fluxo" not in st.session_state:
         st.info('Gere um plano automático acima ou defina um plano personalizado adicionando linhas na tabela abaixo.')
