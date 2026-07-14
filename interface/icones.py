@@ -19,6 +19,16 @@ NOMES = {
     "alerta": "warning",
     "erro": "error",
     "entrar": "arrow_forward",
+    "financiamento": "account_balance",
+    "balao": "trending_up",
+    "fluxo": "swap_horiz",
+    "vpl": "insights",
+    "comparacao": "compare_arrows",
+    "config_financeira": "tune",
+    "exportar": "download",
+    "adicionar": "add",
+    "excluir": "delete",
+    "atualizar": "refresh",
 }
 
 

@@ -26,3 +26,6 @@ openai>=1.40
 
 # Configuração e utilitários
 python-dotenv>=1.0
+
+# Calculadora — integração com a API pública do Banco Central (SELIC)
+requests>=2.31
