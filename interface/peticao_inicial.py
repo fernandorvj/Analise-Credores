@@ -23,8 +23,11 @@ from src.models_peticao_inicial import (
     DadosEmpresa,
     EventoCronologia,
     ItemComJustificativa,
+    PassivoFiscal,
     RelatorioPeticaoInicial,
 )
+
+_ICONE_GRAU_ATENCAO = {"Baixo": "🟢", "Médio": "🟡", "Alto": "🔴"}
 
 _FASES = [
     "Lendo PDF",
@@ -90,7 +93,82 @@ def _renderizar_avisos(relatorio: RelatorioPeticaoInicial) -> None:
         st.info(aviso)
 
 
+def _renderizar_card_passivo_fiscal(relatorio: RelatorioPeticaoInicial) -> None:
+    """Card de destaque fixo no topo da página — nunca omitido, mesmo quando
+    nada foi localizado — para o usuário identificar rapidamente a existência
+    (ou não) de passivo fiscal/execuções fiscais sem precisar abrir a seção.
+    """
+    pf = relatorio.passivo_fiscal
+    with st.container(border=True):
+        st.markdown("#### 🧾 Passivo Fiscal e Execuções Fiscais")
+        if pf.localizado:
+            st.warning("⚠️ Localizado")
+        else:
+            st.success("✅ Não localizado")
+
+        col_valor, col_execucao, col_qtd, col_orgaos = st.columns(4)
+        with col_valor:
+            st.metric("💰 Valor do Passivo Fiscal", pf.valor_passivo_fiscal)
+        with col_execucao:
+            st.metric("💰 Valor das Execuções", pf.valor_execucoes_fiscais)
+        with col_qtd:
+            st.metric("📄 Nº de Execuções/Processos", pf.quantidade_processos)
+        with col_orgaos:
+            orgaos_texto = ", ".join(pf.orgaos_envolvidos) if pf.orgaos_envolvidos else "Não localizado"
+            st.metric("🏛 Órgãos Envolvidos", orgaos_texto)
+
+        icone_grau = _ICONE_GRAU_ATENCAO.get(pf.grau_atencao, "🟢")
+        st.caption(f"Grau de Atenção: {icone_grau} {pf.grau_atencao}")
+
+
+def _renderizar_passivo_fiscal(pf: PassivoFiscal) -> None:
+    st.markdown("##### Situação Encontrada")
+    situacao = [
+        ("Existe Passivo Fiscal?", pf.existe_passivo_fiscal),
+        ("Existe Execução Fiscal?", pf.existe_execucao_fiscal),
+        ("Existe Parcelamento?", pf.existe_parcelamento),
+        ("Existe Transação Tributária?", pf.existe_transacao_tributaria),
+        ("Existe discussão administrativa ou judicial?", pf.existe_discussao_administrativa_judicial),
+    ]
+    st.table(pd.DataFrame(situacao, columns=["Pergunta", "Resposta"]))
+
+    st.markdown("##### Resumo")
+    st.markdown(pf.resumo)
+
+    st.markdown("##### Valores")
+    valores = [
+        ("Valor do Passivo Fiscal", pf.valor_passivo_fiscal),
+        ("Valor das Execuções Fiscais", pf.valor_execucoes_fiscais),
+        ("Quantidade de Processos", pf.quantidade_processos),
+        ("Tributos Envolvidos", ", ".join(pf.tributos_envolvidos) if pf.tributos_envolvidos else "Não localizado"),
+    ]
+    st.table(pd.DataFrame(valores, columns=["Item", "Valor"]))
+
+    st.markdown("##### Trechos Localizados")
+    if pf.trechos_localizados:
+        st.table(
+            pd.DataFrame(
+                [{"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto} for t in pf.trechos_localizados]
+            )
+        )
+    else:
+        st.info("Nenhum trecho localizado no documento.")
+
+    st.markdown("##### Avaliação Estratégica")
+    st.markdown(pf.avaliacao_estrategica or "_Sem conteúdo gerado para esta seção._")
+
+    st.markdown("##### Grau de Atenção")
+    icone_grau = _ICONE_GRAU_ATENCAO.get(pf.grau_atencao, "🟢")
+    st.markdown(f"{icone_grau} **{pf.grau_atencao}**")
+    if pf.justificativa_grau_atencao:
+        st.caption(pf.justificativa_grau_atencao)
+
+
 def _renderizar_valor_secao(valor: object) -> None:
+    if isinstance(valor, PassivoFiscal):
+        _renderizar_passivo_fiscal(valor)
+        return
+
     if isinstance(valor, DadosEmpresa):
         campos = [
             ("Razão Social", valor.razao_social),
@@ -204,6 +282,8 @@ def renderizar_peticao_inicial() -> None:
         return
 
     _renderizar_avisos(relatorio)
+
+    _renderizar_card_passivo_fiscal(relatorio)
 
     st.divider()
     modo = st.radio(

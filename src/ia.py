@@ -19,11 +19,15 @@ from src import analise_quorum, estrategia
 from src.leitor_pdf import PaginaExtraida
 from src.models import ResultadoExtracao
 from src.models_peticao_inicial import (
+    MENSAGEM_PASSIVO_FISCAL_AUSENTE,
     NAO_LOCALIZADO,
+    VALOR_FISCAL_NAO_LOCALIZADO,
     DadosEmpresa,
     EventoCronologia,
     ItemComJustificativa,
+    PassivoFiscal,
     RelatorioPeticaoInicial,
+    TrechoFiscal,
 )
 
 logger = configurar_logging()
@@ -146,6 +150,19 @@ _INSTRUCOES_PETICAO = (
     "Não forneça aconselhamento jurídico ou financeiro nem garanta resultados."
 )
 
+# Termos (e variações/sinônimos que a IA deve considerar) que caracterizam a
+# seção obrigatória "Passivo Fiscal e Execuções Fiscais" — usados tanto no
+# prompt de mapeamento (busca por bloco) quanto no de redução (montagem final).
+_PALAVRAS_CHAVE_FISCAL = (
+    "Passivo Fiscal", "Débitos Tributários", "Execuções Fiscais", "Dívida Ativa",
+    "Procuradoria-Geral da Fazenda Nacional (PGFN)", "Receita Federal", "Fazenda Nacional",
+    "Fazenda Estadual", "Fazenda Municipal", "Débitos Previdenciários", "INSS", "FGTS", "ICMS",
+    "ISS", "PIS", "COFINS", "IRPJ", "CSLL", "IPI", "Simples Nacional", "Parcelamentos Tributários",
+    "Transação Tributária", "REFIS", "Acordos Tributários", "Garantias Fiscais", "Penhoras Fiscais",
+    "Bloqueios Judiciais", "Certidões Negativas", "Certidões Positivas", "Execuções Administrativas",
+    "Autos de Infração", "Contencioso Tributário",
+)
+
 # Limiar (em caracteres) a partir do qual o texto completo deixa de caber com
 # folga numa única chamada e passa a ser dividido em blocos (map) antes da
 # consolidação final (reduce). ~90k caracteres ≈ 22-24k tokens — bem dentro
@@ -169,6 +186,23 @@ _ESQUEMA_JSON_RELATORIO = """{
   "pontos_atencao": [{"ponto": "string", "justificativa": "string"}],
   "visao_estrategica_aquisicao": "string",
   "fatores_impacto_quorum": "string",
+  "passivo_fiscal": {
+    "existe_passivo_fiscal": "Sim | Não | não localizado",
+    "existe_execucao_fiscal": "Sim | Não | não localizado",
+    "existe_parcelamento": "Sim | Não | não localizado",
+    "existe_transacao_tributaria": "Sim | Não | não localizado",
+    "existe_discussao_administrativa_judicial": "Sim | Não | não localizado",
+    "resumo": "string",
+    "valor_passivo_fiscal": "string",
+    "valor_execucoes_fiscais": "string",
+    "quantidade_processos": "string",
+    "tributos_envolvidos": ["string"],
+    "orgaos_envolvidos": ["string"],
+    "trechos_localizados": [{"pagina": "string", "trecho": "string", "contexto": "string"}],
+    "avaliacao_estrategica": "string",
+    "grau_atencao": "Baixo | Médio | Alto",
+    "justificativa_grau_atencao": "string"
+  },
   "resumo_final": "string"
 }"""
 
@@ -198,9 +232,10 @@ def _dividir_em_blocos(paginas: list[PaginaExtraida]) -> list[list[PaginaExtraid
 
 
 def _prompt_mapa(bloco_texto: str, indice: int, total: int, pagina_inicial: int, pagina_final: int) -> str:
+    lista_palavras_chave = ", ".join(_PALAVRAS_CHAVE_FISCAL)
     return (
         f"Você está lendo o BLOCO {indice}/{total} (páginas {pagina_inicial} a {pagina_final}) de "
-        "uma Petição Inicial de Recuperação Judicial. Sob cada um dos 12 rótulos abaixo, liste "
+        "uma Petição Inicial de Recuperação Judicial. Sob cada um dos 13 rótulos abaixo, liste "
         "apenas fatos brutos, números, nomes e datas ENCONTRADOS NESTE BLOCO — não resuma, não "
         "interprete, e não conclua 'não localizado' aqui (essa decisão só é tomada depois de ver "
         "todos os blocos). Se nada aparecer sob um rótulo neste bloco, escreva 'Nada neste "
@@ -210,12 +245,18 @@ def _prompt_mapa(bloco_texto: str, indice: int, total: int, pagina_inicial: int,
         "Histórico da Empresa; Motivos da Recuperação Judicial; Situação Financeira; Cronologia "
         "dos Fatos (data + evento); Principais Riscos; Pontos Positivos; Pontos de Atenção; Visão "
         "Estratégica para Aquisição de Créditos; Fatores que Podem Impactar a Formação de "
-        "Quórum; Resumo Final.\n\n"
+        "Quórum; Passivo Fiscal e Execuções Fiscais; Resumo Final.\n\n"
+        "Para o rótulo 'Passivo Fiscal e Execuções Fiscais', procure de forma minuciosa neste "
+        "bloco qualquer menção — considerando sinônimos e diferentes formas de redação — a: "
+        f"{lista_palavras_chave}. Para cada menção encontrada, transcreva o número da página, o "
+        "trecho literal (verbatim) e uma breve descrição do contexto — nunca resuma nem "
+        "interprete aqui, apenas colete.\n\n"
         f"Texto do bloco:\n{bloco_texto}"
     )
 
 
 def _prompt_reducao(arquivo_nome: str, texto_fonte: str) -> str:
+    lista_palavras_chave = ", ".join(_PALAVRAS_CHAVE_FISCAL)
     return (
         f"Documento analisado: {arquivo_nome}\n\n"
         "A seguir está o conteúdo (ou as notas já extraídas por blocos) de uma Petição Inicial "
@@ -231,7 +272,31 @@ def _prompt_reducao(arquivo_nome: str, texto_fonte: str) -> str:
         "jurídico ou financeiro. 'fatores_impacto_quorum' deve indicar grupos econômicos, "
         "credores institucionais, dependência de fornecedores e estrutura do passivo relevantes "
         f"para uma futura formação de quórum — e dizer explicitamente \"{NAO_LOCALIZADO}\" quando "
-        "ausente. 'resumo_final' deve ser um parecer executivo, técnico e objetivo, como se fosse "
+        "ausente.\n\n"
+        "'passivo_fiscal' é uma seção OBRIGATÓRIA — deve sempre ser preenchida, mesmo quando nada "
+        "for encontrado. Baseie-se em todas as menções (diretas ou por sinônimo/forma alternativa "
+        f"de redação) a: {lista_palavras_chave}, localizadas no texto ou nas notas por bloco. "
+        "Preencha 'existe_passivo_fiscal', 'existe_execucao_fiscal', 'existe_parcelamento', "
+        "'existe_transacao_tributaria' e 'existe_discussao_administrativa_judicial' cada um com "
+        f"\"Sim\", \"Não\" ou \"{NAO_LOCALIZADO}\" (nunca conclua \"Não\" sem evidência explícita "
+        "no texto — na dúvida, use \"" + NAO_LOCALIZADO + "\"). Em 'valor_passivo_fiscal' e "
+        f"'valor_execucoes_fiscais', escreva exatamente \"{VALOR_FISCAL_NAO_LOCALIZADO}\" quando o "
+        "valor não constar no documento. 'trechos_localizados' deve trazer, para cada menção "
+        "relevante, a página, o trecho literal (verbatim, nunca parafraseado ou inventado) e o "
+        "contexto — liste vazio ([]) se nada for encontrado, nunca invente um trecho. "
+        "'avaliacao_estrategica' deve analisar, com base exclusivamente no que foi encontrado, "
+        "como o passivo fiscal pode influenciar a Recuperação Judicial, a capacidade de "
+        "negociação da empresa, pontos de atenção antes de uma eventual aquisição de créditos e "
+        "possíveis impactos na formação de quórum ou andamento do plano — como apoio estratégico, "
+        "SEM aconselhamento jurídico, garantia de resultado ou recomendação. 'grau_atencao' deve "
+        "ser \"Baixo\", \"Médio\" ou \"Alto\", com 'justificativa_grau_atencao' baseada "
+        "exclusivamente no conteúdo encontrado. Se NADA sobre passivo fiscal ou execução fiscal "
+        f"for encontrado em nenhum bloco, defina 'resumo' como exatamente:\n\"{MENSAGEM_PASSIVO_FISCAL_AUSENTE}\"\n"
+        "e mantenha todos os campos de situação como \"" + NAO_LOCALIZADO + "\", os valores como "
+        f"\"{VALOR_FISCAL_NAO_LOCALIZADO}\", 'trechos_localizados' vazio e 'grau_atencao' como "
+        "\"Baixo\" (justificando a ausência de menções no documento) — nunca afirme que não existe "
+        "passivo fiscal, apenas que não foi encontrado no texto analisado.\n\n"
+        "'resumo_final' deve ser um parecer executivo, técnico e objetivo, como se fosse "
         "entregue à Diretoria da AMF3 Capital.\n\n"
         f"Conteúdo:\n{texto_fonte}"
     )
@@ -326,6 +391,49 @@ def _construir_relatorio(
         except (KeyError, TypeError):
             continue
 
+    passivo_fiscal_dados = dados.get("passivo_fiscal")
+    if not isinstance(passivo_fiscal_dados, dict):
+        passivo_fiscal_dados = {}
+
+    trechos_fiscais: list[TrechoFiscal] = []
+    for item in passivo_fiscal_dados.get("trechos_localizados") or []:
+        try:
+            trechos_fiscais.append(
+                TrechoFiscal(
+                    pagina=str(item.get("pagina") or "-"),
+                    trecho=str(item["trecho"]),
+                    contexto=str(item.get("contexto") or ""),
+                )
+            )
+        except (KeyError, TypeError, AttributeError):
+            continue
+
+    def _lista_str(chave: str) -> list[str]:
+        valor = passivo_fiscal_dados.get(chave)
+        if not isinstance(valor, list):
+            return []
+        return [str(item) for item in valor if str(item).strip()]
+
+    passivo_fiscal = PassivoFiscal(
+        existe_passivo_fiscal=str(passivo_fiscal_dados.get("existe_passivo_fiscal", NAO_LOCALIZADO)),
+        existe_execucao_fiscal=str(passivo_fiscal_dados.get("existe_execucao_fiscal", NAO_LOCALIZADO)),
+        existe_parcelamento=str(passivo_fiscal_dados.get("existe_parcelamento", NAO_LOCALIZADO)),
+        existe_transacao_tributaria=str(passivo_fiscal_dados.get("existe_transacao_tributaria", NAO_LOCALIZADO)),
+        existe_discussao_administrativa_judicial=str(
+            passivo_fiscal_dados.get("existe_discussao_administrativa_judicial", NAO_LOCALIZADO)
+        ),
+        resumo=str(passivo_fiscal_dados.get("resumo") or MENSAGEM_PASSIVO_FISCAL_AUSENTE),
+        valor_passivo_fiscal=str(passivo_fiscal_dados.get("valor_passivo_fiscal") or VALOR_FISCAL_NAO_LOCALIZADO),
+        valor_execucoes_fiscais=str(passivo_fiscal_dados.get("valor_execucoes_fiscais") or VALOR_FISCAL_NAO_LOCALIZADO),
+        quantidade_processos=str(passivo_fiscal_dados.get("quantidade_processos", NAO_LOCALIZADO)),
+        tributos_envolvidos=_lista_str("tributos_envolvidos"),
+        orgaos_envolvidos=_lista_str("orgaos_envolvidos"),
+        trechos_localizados=trechos_fiscais,
+        avaliacao_estrategica=str(passivo_fiscal_dados.get("avaliacao_estrategica", "")),
+        grau_atencao=str(passivo_fiscal_dados.get("grau_atencao") or "Baixo"),
+        justificativa_grau_atencao=str(passivo_fiscal_dados.get("justificativa_grau_atencao", "")),
+    )
+
     return RelatorioPeticaoInicial(
         arquivo_nome=arquivo_nome,
         data_analise=date.today(),
@@ -344,6 +452,7 @@ def _construir_relatorio(
         pontos_atencao=pontos_atencao,
         visao_estrategica_aquisicao=_texto("visao_estrategica_aquisicao"),
         fatores_impacto_quorum=_texto("fatores_impacto_quorum"),
+        passivo_fiscal=passivo_fiscal,
         resumo_final=_texto("resumo_final"),
     )
 
@@ -353,7 +462,7 @@ def gerar_relatorio_peticao_inicial(
     arquivo_nome: str,
     progress_callback: Callable[[str], None] | None = None,
 ) -> RelatorioPeticaoInicial:
-    """Gera o relatório completo (12 seções) de uma Petição Inicial já lida
+    """Gera o relatório completo (13 seções) de uma Petição Inicial já lida
     (`src.leitor_pdf.ler_pdf`). Documentos grandes são divididos em blocos
     (map) e consolidados numa única chamada final (reduce) — o usuário nunca
     vê os blocos, só o relatório final. `progress_callback`, se informado, é
@@ -426,6 +535,15 @@ def gerar_relatorio_peticao_inicial(
                 "fatores_impacto_quorum",
                 "resumo_final",
             )
+        }
+        dados_fallback["passivo_fiscal"] = {
+            "existe_passivo_fiscal": NAO_LOCALIZADO,
+            "existe_execucao_fiscal": NAO_LOCALIZADO,
+            "existe_parcelamento": NAO_LOCALIZADO,
+            "existe_transacao_tributaria": NAO_LOCALIZADO,
+            "existe_discussao_administrativa_judicial": NAO_LOCALIZADO,
+            "resumo": mensagem_falha,
+            "avaliacao_estrategica": mensagem_falha,
         }
         return _construir_relatorio(
             dados_fallback, arquivo_nome, len(paginas), paginas_ocr, baixa_confianca, avisos

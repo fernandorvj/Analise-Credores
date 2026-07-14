@@ -1,6 +1,6 @@
 """Exportação do relatório do módulo Petição Inicial para Word (.docx).
 
-Estrutura: capa, sumário, as 12 seções do relatório (nesta ordem — ver
+Estrutura: capa, sumário, as 13 seções do relatório (nesta ordem — ver
 `SECOES` em `src/models_peticao_inicial.py`) e um bloco final de avisos sobre
 a extração/geração. Reaproveita a marca visual e os helpers genéricos de
 `src/exportar_word_base.py` (mesmo módulo usado pelo relatório de Credores),
@@ -21,8 +21,11 @@ from src.models_peticao_inicial import (
     DadosEmpresa,
     EventoCronologia,
     ItemComJustificativa,
+    PassivoFiscal,
     RelatorioPeticaoInicial,
 )
+
+_ICONE_GRAU_ATENCAO = {"Baixo": "🟢", "Médio": "🟡", "Alto": "🔴"}
 
 logger = configurar_logging()
 
@@ -49,8 +52,62 @@ def _renderizar_dados_empresa(doc: Document, dados: DadosEmpresa) -> None:
     base.adicionar_tabela_dataframe(doc, pd.DataFrame(campos, columns=["Campo", "Valor"]))
 
 
+def _renderizar_passivo_fiscal(doc: Document, pf: PassivoFiscal) -> None:
+    doc.add_heading("Situação Encontrada", level=2)
+    df_situacao = pd.DataFrame(
+        [
+            ("Existe Passivo Fiscal?", pf.existe_passivo_fiscal),
+            ("Existe Execução Fiscal?", pf.existe_execucao_fiscal),
+            ("Existe Parcelamento?", pf.existe_parcelamento),
+            ("Existe Transação Tributária?", pf.existe_transacao_tributaria),
+            ("Existe discussão administrativa ou judicial?", pf.existe_discussao_administrativa_judicial),
+        ],
+        columns=["Pergunta", "Resposta"],
+    )
+    base.adicionar_tabela_dataframe(doc, df_situacao)
+
+    doc.add_heading("Resumo", level=2)
+    doc.add_paragraph(pf.resumo)
+
+    doc.add_heading("Valores", level=2)
+    df_valores = pd.DataFrame(
+        [
+            ("Valor do Passivo Fiscal", pf.valor_passivo_fiscal),
+            ("Valor das Execuções Fiscais", pf.valor_execucoes_fiscais),
+            ("Quantidade de Processos", pf.quantidade_processos),
+            ("Tributos Envolvidos", ", ".join(pf.tributos_envolvidos) if pf.tributos_envolvidos else "Não localizado"),
+            ("Órgãos Envolvidos", ", ".join(pf.orgaos_envolvidos) if pf.orgaos_envolvidos else "Não localizado"),
+        ],
+        columns=["Item", "Valor"],
+    )
+    base.adicionar_tabela_dataframe(doc, df_valores)
+
+    doc.add_heading("Trechos Localizados", level=2)
+    if pf.trechos_localizados:
+        df_trechos = pd.DataFrame(
+            [{"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto} for t in pf.trechos_localizados]
+        )
+        base.adicionar_tabela_dataframe(doc, df_trechos)
+    else:
+        doc.add_paragraph("Nenhum trecho localizado no documento.")
+
+    doc.add_heading("Avaliação Estratégica", level=2)
+    doc.add_paragraph(pf.avaliacao_estrategica or "Não foi possível gerar esta seção automaticamente.")
+
+    doc.add_heading("Grau de Atenção", level=2)
+    icone_grau = _ICONE_GRAU_ATENCAO.get(pf.grau_atencao, "🟢")
+    paragrafo_grau = doc.add_paragraph()
+    paragrafo_grau.add_run(f"{icone_grau} {pf.grau_atencao}").bold = True
+    if pf.justificativa_grau_atencao:
+        doc.add_paragraph(pf.justificativa_grau_atencao)
+
+
 def _renderizar_secao(doc: Document, titulo: str, valor: object) -> None:
     doc.add_heading(titulo, level=1)
+
+    if isinstance(valor, PassivoFiscal):
+        _renderizar_passivo_fiscal(doc, valor)
+        return
 
     if isinstance(valor, DadosEmpresa):
         _renderizar_dados_empresa(doc, valor)
@@ -71,7 +128,7 @@ def _renderizar_secao(doc: Document, titulo: str, valor: object) -> None:
 
 
 def exportar_word_peticao_inicial(relatorio: RelatorioPeticaoInicial, caminho_saida: str | Path) -> Path:
-    """Gera o relatório .docx completo (capa + sumário + 12 seções) a partir
+    """Gera o relatório .docx completo (capa + sumário + 13 seções) a partir
     de um `RelatorioPeticaoInicial` já preenchido (ver `src/ia.py`).
     """
     caminho_saida = Path(caminho_saida)
