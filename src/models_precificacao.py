@@ -1,11 +1,9 @@
 """Modelos de dados do módulo Precificação Inteligente de Créditos.
 
-Independente do módulo Credores e do módulo Petição Inicial. Reaproveita
-`ResultadoVPL`/`ParametrosVPL` de `src/calculadora/models.py` (o mesmo motor
-de VPL/TIR/fluxo de caixa já usado pela Simulação de Financiamento) em vez de
-duplicar essas estruturas — este arquivo só acrescenta o que é específico
-deste módulo: a extração (via IA) dos termos do Plano de Recuperação Judicial
-e os indicadores adicionais (Duration, Payback Descontado, Preço Máximo).
+Independente do módulo Credores e do módulo Petição Inicial. A IA só
+interpreta o Plano de Recuperação Judicial (condições de pagamento por
+classe); todo cálculo financeiro é feito em Python puro, de forma
+determinística e auditável (ver `src/calculadora/precificacao_motor.py`).
 """
 
 from __future__ import annotations
@@ -14,43 +12,12 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
-from src.calculadora.models import ResultadoVPL
 from src.models_peticao_inicial import NAO_LOCALIZADO
 
 
 @dataclass
-class TermosGerais:
-    """Termos gerais do Plano de RJ identificados pela IA — texto livre,
-    nunca um valor numérico pronto para cálculo (o usuário confirma/ajusta os
-    números antes de qualquer cálculo em `interface/precificacao.py`).
-    """
-
-    desagio: str = NAO_LOCALIZADO
-    carencia: str = NAO_LOCALIZADO
-    juros: str = NAO_LOCALIZADO
-    correcao_monetaria: str = NAO_LOCALIZADO
-    periodicidade_parcelas: str = NAO_LOCALIZADO
-    quantidade_parcelas: str = NAO_LOCALIZADO
-    data_inicio_pagamentos: str = NAO_LOCALIZADO
-
-
-@dataclass
-class TermosClasse:
-    """Termos específicos de uma classe de credores, quando o plano os
-    diferencia por classe (comum em Planos de RJ reais)."""
-
-    classe: str = NAO_LOCALIZADO
-    desagio: str = NAO_LOCALIZADO
-    carencia: str = NAO_LOCALIZADO
-    juros: str = NAO_LOCALIZADO
-    periodicidade_parcelas: str = NAO_LOCALIZADO
-    quantidade_parcelas: str = NAO_LOCALIZADO
-    observacoes: str = ""
-
-
-@dataclass
 class TrechoPlano:
-    """Um trecho do Plano de RJ que fundamenta um termo extraído — nunca
+    """Um trecho do Plano de RJ que fundamenta uma condição extraída — nunca
     inventado, sempre extraído literalmente do documento."""
 
     pagina: str = "-"
@@ -59,34 +26,68 @@ class TrechoPlano:
 
 
 @dataclass
-class ExtracaoPlano:
-    """Resultado da extração via IA do Plano de RJ — só interpretação do
-    texto, nunca cálculo (todo cálculo financeiro é feito em Python a partir
-    dos números que o usuário confirma com base nesta extração).
+class CondicoesPagamentoClasse:
+    """Condições de pagamento previstas no Plano de RJ para uma classe de
+    credores — texto livre extraído pela IA, sempre revisado/editado pelo
+    usuário (via formulário estruturado) antes de qualquer cálculo.
+    """
+
+    classe: str
+    desagio: str = NAO_LOCALIZADO
+    carencia: str = NAO_LOCALIZADO
+    correcao_monetaria_indice: str = NAO_LOCALIZADO
+    juros: str = NAO_LOCALIZADO
+    numero_parcelas: str = NAO_LOCALIZADO
+    periodicidade: str = NAO_LOCALIZADO
+    data_primeira_parcela: str = NAO_LOCALIZADO
+    parcela_balao: str = NAO_LOCALIZADO
+    fluxos_alternativos: str = ""
+    excecoes_regras_especiais: str = ""
+    trechos_localizados: list[TrechoPlano] = field(default_factory=list)
+
+
+@dataclass
+class ExtracaoPlanoPorClasse:
+    """Resultado da extração via IA do Plano de RJ — condições de pagamento
+    organizadas pelas 4 classes padrão (`config.CLASSES_RJ_PADRAO`). Só
+    interpretação do texto, nunca cálculo.
     """
 
     arquivo_nome: str
     data_analise: date
-    termos_gerais: TermosGerais = field(default_factory=TermosGerais)
-    termos_por_classe: list[TermosClasse] = field(default_factory=list)
-    eventos_especiais: list[str] = field(default_factory=list)
-    resumo_plano: str = ""
-    trechos_localizados: list[TrechoPlano] = field(default_factory=list)
+    condicoes_por_classe: dict[str, CondicoesPagamentoClasse] = field(default_factory=dict)
     avisos: list[str] = field(default_factory=list)
 
 
 @dataclass
-class ResultadoPrecificacao:
-    """Saída completa da Precificação Inteligente — compõe o `ResultadoVPL`
-    já existente (motor validado em `src/calculadora/vpl_tir.py`) com os
-    indicadores adicionais deste módulo e o contexto da extração via IA.
+class ParcelaPrecificacao:
+    """Uma parcela do fluxo de pagamento de uma classe — valor nominal (já
+    com correção monetária, se aplicável) e valor descontado a valor
+    presente pela taxa de desconto (SELIC ou manual)."""
+
+    numero: int
+    data: date
+    descricao: str
+    valor_nominal: Decimal
+    valor_descontado: Decimal
+
+
+@dataclass
+class ResultadoPrecificacaoClasse:
+    """Saída completa do cálculo de VPL para uma classe — 100% em Python,
+    determinístico e auditável (nunca calculado pela IA).
     """
 
-    extracao: ExtracaoPlano
-    resultado_vpl: ResultadoVPL
-    duration_anos: Decimal | None
-    payback_descontado_data: date | None
-    payback_descontado_meses: float | None
-    preco_maximo_breakeven: Decimal  # = valor_economico: pagar mais que isso já dá ganho líquido negativo
-    preco_maximo_taxa_alvo: Decimal  # preço para atingir exatamente `taxa_alvo_anual` de TIR
-    taxa_alvo_anual: Decimal
+    classe: str
+    valor_nominal_credito: Decimal
+    valor_atualizado_credito: Decimal | None
+    condicoes: CondicoesPagamentoClasse
+    taxa_desconto_anual: Decimal
+    origem_taxa_desconto: str
+    data_taxa_desconto: date | None
+    fluxo: list[ParcelaPrecificacao] = field(default_factory=list)
+    vpl: Decimal = Decimal(0)
+    memoria_calculo: list[str] = field(default_factory=list)
+    # False até a metodologia ser comparada e confirmada equivalente à
+    # planilha oficial da AMF3 — ver ETAPA de validação do módulo.
+    metodologia_validada: bool = False

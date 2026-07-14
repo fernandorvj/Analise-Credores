@@ -1,17 +1,19 @@
-"""Módulo Precificação Inteligente de Créditos — extração via IA dos termos
-de um Plano de Recuperação Judicial e cálculo (100% em Python, determinístico
-e auditável) de VPL, TIR, ROI, Payback, Payback Descontado, Duration e Preço
-Máximo Recomendado para a aquisição do crédito.
+"""Módulo Precificação Inteligente de Créditos.
 
-Totalmente independente dos módulos Credores e Petição Inicial. Reaproveita a
-leitura/OCR de PDF (`src/leitor_pdf.py`), o gateway único de IA (`src/ia.py`)
-e o motor financeiro já validado em `src/calculadora/` (amortização, fluxo de
-caixa livre, VPL/TIR/Payback/Duration, SELIC) — a IA só interpreta o
-documento, nunca calcula.
+A IA tem uma única responsabilidade: ler o Plano de Recuperação Judicial e
+localizar as condições de pagamento previstas para cada classe de credores
+(deságio, carência, correção, juros, parcelas, datas, balão, exceções) —
+nunca calcula nada. Todo o cálculo de VPL é feito em Python puro, 100%
+determinístico e auditável (`src/calculadora/precificacao_motor.py`).
+
+*** METODOLOGIA PROVISÓRIA: a convenção de desconto (XNPV) ainda não foi
+comparada com a planilha oficial de cálculo de VPL da AMF3 Capital — a
+interface exibe esse aviso enquanto isso não for confirmado. ***
 """
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -20,55 +22,39 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from config import CORES, EXPORTADOS_DIR, PETICOES_DIR, possui_chave_openai
+from config import CLASSES_RJ_PADRAO, CORES, EXPORTADOS_DIR, PETICOES_DIR, possui_chave_openai
 from interface import layout
-from interface.calculadora.componentes import (
-    aplicar_tema_escuro_grafico,
-    container_grafico,
-    editor_fluxo,
-    renderizar_kpis,
-    salvar_cenario,
-)
+from interface.calculadora.componentes import aplicar_tema_escuro_grafico, campo_moeda, container_grafico, renderizar_kpis
 from interface.icones import icone
 from src import ia, leitor_pdf
-from src.calculadora.amortizacao import gerar_cronograma
-from src.calculadora.fluxo import novo_item
-from src.calculadora.models import (
-    ParametrosFinanciamento,
-    ParametrosVPL,
-    Periodicidade,
-    RegimeJuros,
-    SistemaAmortizacao,
-    TipoFluxoItem,
-)
+from src.calculadora.indices import obter_cdi_bacen, obter_igpm_12m_bacen, obter_ipca_12m_bacen, obter_tr_bacen
+from src.calculadora.models import Periodicidade
+from src.calculadora.precificacao_motor import ParametrosCalculoClasse, calcular_precificacao_classe
 from src.calculadora.selic import ORIGEM_MANUAL, obter_selic_bacen
-from src.calculadora.vpl_tir import (
-    calcular_duration,
-    calcular_payback_descontado,
-    calcular_resultado_vpl,
-    preco_maximo_para_taxa_alvo,
-)
 from src.exportar_excel_precificacao import exportar_excel_precificacao
 from src.exportar_word_precificacao import exportar_word_precificacao
-from src.models_precificacao import ExtracaoPlano, ResultadoPrecificacao
+from src.models_precificacao import CondicoesPagamentoClasse, ExtracaoPlanoPorClasse, ResultadoPrecificacaoClasse
 from src.utils import formatar_moeda, formatar_percentual
 
-_FASES = [
-    "Lendo PDF",
-    "Aplicando OCR",
-    "Extraindo texto",
-    "Organizando documento",
-    "Consultando IA",
-    "Extraindo termos",
-]
+_FASES_PDF = ["Lendo PDF", "Extraindo texto", "Organizando documento", "Consultando IA", "Extraindo condições"]
+_FASES_TEXTO = ["Organizando texto", "Consultando IA", "Extraindo condições"]
+
+_OPCOES_INDICE = ["Nenhum", "IPCA", "CDI", "IGP-M", "TR", "SELIC"]
+_INDICE_FUNCOES = {"IPCA": obter_ipca_12m_bacen, "CDI": obter_cdi_bacen, "IGP-M": obter_igpm_12m_bacen, "TR": obter_tr_bacen}
+
+_MESES_PT = {
+    "janeiro": 1, "fevereiro": 2, "março": 3, "marco": 3, "abril": 4, "maio": 5, "junho": 6,
+    "julho": 7, "agosto": 8, "setembro": 9, "outubro": 10, "novembro": 11, "dezembro": 12,
+    "jan": 1, "fev": 2, "mar": 3, "abr": 4, "mai": 5, "jun": 6, "jul": 7, "ago": 8, "set": 9, "out": 10, "nov": 11, "dez": 12,
+}
 
 
-def _processar_plano(arquivo) -> ExtracaoPlano | None:
+# --- Etapa 1/2: importação e extração ---------------------------------------
+
+
+def _processar_pdf(arquivo) -> ExtracaoPlanoPorClasse | None:
     if not possui_chave_openai():
-        st.warning(
-            "Nenhuma chave de API da OpenAI configurada. Defina OPENAI_API_KEY para habilitar "
-            "a extração inteligente do Plano de Recuperação Judicial."
-        )
+        st.warning("Nenhuma chave de API da OpenAI configurada. Defina OPENAI_API_KEY para habilitar a extração.")
         return None
 
     caminho_pdf = PETICOES_DIR / arquivo.name
@@ -78,417 +64,541 @@ def _processar_plano(arquivo) -> ExtracaoPlano | None:
         barra = st.progress(0.0)
 
         def _concluir_fase(indice: int) -> None:
-            st.write(f"✓ {_FASES[indice]}")
-            barra.progress((indice + 1) / len(_FASES))
+            st.write(f"✓ {_FASES_PDF[indice]}")
+            barra.progress((indice + 1) / len(_FASES_PDF))
 
         paginas = leitor_pdf.ler_pdf(caminho_pdf)
-        _concluir_fase(0)  # Lendo PDF
-        _concluir_fase(1)  # Aplicando OCR (feito dentro de ler_pdf, por página)
-        _concluir_fase(2)  # Extraindo texto
-        _concluir_fase(3)  # Organizando documento
+        texto = "\n\n".join(f"--- Página {p.numero} ---\n{p.texto}" for p in paginas)
+        _concluir_fase(0)
+        _concluir_fase(1)
+        _concluir_fase(2)
 
         def _callback(mensagem: str) -> None:
             status.update(label=mensagem)
             st.write(mensagem)
 
         try:
-            extracao = ia.extrair_termos_plano(paginas, arquivo.name, progress_callback=_callback)
+            extracao = ia.extrair_condicoes_plano(texto, arquivo.name, progress_callback=_callback)
         except RuntimeError as exc:
             status.update(label="Falha ao consultar a IA", state="error")
             st.error(str(exc))
             return None
-        _concluir_fase(4)  # Consultando IA
-        _concluir_fase(5)  # Extraindo termos
-        status.update(label="Termos extraídos com sucesso!", state="complete", expanded=False)
+        _concluir_fase(3)
+        _concluir_fase(4)
+        status.update(label="Condições extraídas com sucesso!", state="complete", expanded=False)
 
     return extracao
 
 
-def _renderizar_extracao(extracao: ExtracaoPlano) -> None:
+def _processar_texto_colado(texto: str) -> ExtracaoPlanoPorClasse | None:
+    if not possui_chave_openai():
+        st.warning("Nenhuma chave de API da OpenAI configurada. Defina OPENAI_API_KEY para habilitar a extração.")
+        return None
+
+    with st.status("Analisando trecho colado...", expanded=True) as status:
+        barra = st.progress(0.0)
+
+        def _concluir_fase(indice: int) -> None:
+            st.write(f"✓ {_FASES_TEXTO[indice]}")
+            barra.progress((indice + 1) / len(_FASES_TEXTO))
+
+        _concluir_fase(0)
+
+        def _callback(mensagem: str) -> None:
+            status.update(label=mensagem)
+            st.write(mensagem)
+
+        try:
+            extracao = ia.extrair_condicoes_plano(texto, "Trecho colado pelo usuário", progress_callback=_callback)
+        except RuntimeError as exc:
+            status.update(label="Falha ao consultar a IA", state="error")
+            st.error(str(exc))
+            return None
+        _concluir_fase(1)
+        _concluir_fase(2)
+        status.update(label="Condições extraídas com sucesso!", state="complete", expanded=False)
+
+    return extracao
+
+
+def _renderizar_quadro_geral(extracao: ExtracaoPlanoPorClasse) -> None:
     for aviso in extracao.avisos:
         st.info(aviso)
 
-    with st.container(border=True):
-        st.markdown("#### Termos Identificados pela IA")
-        st.caption(
-            "Revise os termos abaixo e confirme os valores numéricos no formulário de parâmetros "
-            "logo adiante — a IA só interpreta o texto do documento, nenhum cálculo é feito por ela."
+    st.markdown("#### Condições Identificadas pelo Plano")
+    st.caption("Confira o resumo por classe abaixo — os campos da classe selecionada ficam editáveis mais adiante.")
+    linhas = []
+    for classe in CLASSES_RJ_PADRAO:
+        c = extracao.condicoes_por_classe.get(classe) or CondicoesPagamentoClasse(classe=classe)
+        linhas.append(
+            {
+                "Classe": classe,
+                "Deságio": c.desagio,
+                "Carência": c.carencia,
+                "Correção": c.correcao_monetaria_indice,
+                "Juros": c.juros,
+                "Parcelas": c.numero_parcelas,
+                "Periodicidade": c.periodicidade,
+                "1ª Parcela": c.data_primeira_parcela,
+                "Balão": c.parcela_balao,
+            }
         )
-        tg = extracao.termos_gerais
-        st.table(
-            pd.DataFrame(
-                [
-                    ("Deságio", tg.desagio),
-                    ("Carência", tg.carencia),
-                    ("Juros", tg.juros),
-                    ("Correção Monetária", tg.correcao_monetaria),
-                    ("Periodicidade das Parcelas", tg.periodicidade_parcelas),
-                    ("Quantidade de Parcelas", tg.quantidade_parcelas),
-                    ("Data de Início dos Pagamentos", tg.data_inicio_pagamentos),
-                ],
-                columns=["Termo", "Valor Identificado"],
-            )
-        )
+    st.table(pd.DataFrame(linhas))
 
-        if extracao.termos_por_classe:
-            st.markdown("##### Termos por Classe")
-            st.table(
-                pd.DataFrame(
-                    [
-                        {
-                            "Classe": t.classe,
-                            "Deságio": t.desagio,
-                            "Carência": t.carencia,
-                            "Juros": t.juros,
-                            "Periodicidade": t.periodicidade_parcelas,
-                            "Parcelas": t.quantidade_parcelas,
-                            "Observações": t.observacoes,
-                        }
-                        for t in extracao.termos_por_classe
-                    ]
-                )
-            )
 
-        if extracao.eventos_especiais:
-            st.markdown("##### Eventos Especiais")
-            for evento in extracao.eventos_especiais:
-                st.markdown(f"- {evento}")
+# --- Etapa 3: confirmação (parsing best-effort + edição) --------------------
 
-        if extracao.resumo_plano:
-            st.markdown("##### Resumo do Plano")
-            st.markdown(extracao.resumo_plano)
 
-        if extracao.trechos_localizados:
-            with st.expander("Trechos Localizados (auditoria)"):
-                st.table(
-                    pd.DataFrame(
-                        [
-                            {"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto}
-                            for t in extracao.trechos_localizados
-                        ]
-                    )
-                )
+def _parse_percentual(texto: str) -> float | None:
+    match = re.search(r"(\d+(?:[.,]\d+)?)\s*%", texto or "")
+    return float(match.group(1).replace(",", ".")) / 100 if match else None
+
+
+def _parse_inteiro(texto: str) -> int | None:
+    match = re.search(r"\d+", texto or "")
+    return int(match.group(0)) if match else None
+
+
+def _parse_periodicidade(texto: str) -> Periodicidade | None:
+    texto_lower = (texto or "").strip().lower()
+    if not texto_lower:
+        return None
+    for periodicidade in Periodicidade:
+        if periodicidade.value.lower() in texto_lower:
+            return periodicidade
+    return None
+
+
+def _parse_periodicidade_taxa(texto: str) -> Periodicidade:
+    texto_lower = (texto or "").lower()
+    if "a.a" in texto_lower or "ano" in texto_lower or "anual" in texto_lower:
+        return Periodicidade.ANUAL
+    if "trimestr" in texto_lower:
+        return Periodicidade.TRIMESTRAL
+    if "semestr" in texto_lower:
+        return Periodicidade.SEMESTRAL
+    return Periodicidade.MENSAL
+
+
+def _parse_data(texto: str) -> date | None:
+    texto_limpo = (texto or "").strip()
+    if not texto_limpo:
+        return None
+    match = re.match(r"([A-Za-zçÇãÃ]+)\s*[/\- ]\s*(\d{4})", texto_limpo)
+    if match and match.group(1).lower() in _MESES_PT:
+        return date(int(match.group(2)), _MESES_PT[match.group(1).lower()], 1)
+    match = re.match(r"(\d{1,2})/(\d{1,2})/(\d{4})", texto_limpo)
+    if match:
+        try:
+            return date(int(match.group(3)), int(match.group(2)), int(match.group(1)))
+        except ValueError:
+            return None
+    match = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", texto_limpo)
+    if match:
+        try:
+            return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        except ValueError:
+            return None
+    match = re.match(r"(\d{1,2})/(\d{4})", texto_limpo)
+    if match:
+        try:
+            return date(int(match.group(2)), int(match.group(1)), 1)
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_indice(texto: str) -> str:
+    texto_lower = (texto or "").strip().lower()
+    if "ipca" in texto_lower:
+        return "IPCA"
+    if "cdi" in texto_lower:
+        return "CDI"
+    if "igp" in texto_lower:
+        return "IGP-M"
+    if re.search(r"\btr\b", texto_lower) or "referencial" in texto_lower:
+        return "TR"
+    if "selic" in texto_lower:
+        return "SELIC"
+    return "Nenhum"
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _consultar_selic_cache():
-    resultado = obter_selic_bacen()
+def _consultar_taxa_cache(nome_indice: str):
+    if nome_indice == "SELIC":
+        resultado = obter_selic_bacen()
+        if resultado is None:
+            return None
+        return {"valor": resultado.valor_anual, "data_referencia": resultado.data_referencia, "origem": resultado.origem}
+    funcao = _INDICE_FUNCOES.get(nome_indice)
+    if funcao is None:
+        return None
+    resultado = funcao()
     if resultado is None:
         return None
-    return {"valor_anual": resultado.valor_anual, "data_referencia": resultado.data_referencia, "origem": resultado.origem}
+    return {"valor": resultado.valor, "data_referencia": resultado.data_referencia, "origem": resultado.origem}
 
 
-def _bloco_taxa_desconto() -> tuple[Decimal, str]:
-    st.markdown("#### Taxa de Desconto (SELIC)")
-    col_a, col_b = st.columns([3, 1])
-    with col_b:
-        if st.button("Atualizar SELIC", icon=icone("atualizar")):
-            _consultar_selic_cache.clear()
+def _bloco_taxa_indice(rotulo: str, indice_sugerido: str, key_prefix: str, permitir_nenhum: bool = True) -> tuple[str, Decimal, str, date | None]:
+    """Bloco reutilizável de seleção de índice + resolução da taxa (API do
+    BACEN com fallback manual) — usado tanto para o Índice de Correção
+    Monetária quanto para a Taxa de Desconto (SELIC)."""
+    opcoes = _OPCOES_INDICE if permitir_nenhum else _OPCOES_INDICE[1:]
+    indice_escolhido = st.selectbox(
+        rotulo, opcoes, index=opcoes.index(indice_sugerido) if indice_sugerido in opcoes else 0, key=f"{key_prefix}_indice"
+    )
+    if indice_escolhido == "Nenhum":
+        return indice_escolhido, Decimal(0), "Sem correção monetária", None
 
-    selic = _consultar_selic_cache()
-    with col_a:
-        if selic is not None:
-            st.success(
-                f"Meta Selic: {formatar_percentual(float(selic['valor_anual']))} a.a. — "
-                f"referência {selic['data_referencia'].strftime('%d/%m/%Y')} ({selic['origem']})"
-            )
-        else:
-            st.warning(
-                "Não foi possível consultar a API do BACEN neste momento. Informe a taxa manualmente abaixo."
-            )
-
-    usar_manual = st.checkbox("Informar taxa manualmente", value=selic is None, key="prec_taxa_manual")
-    if usar_manual:
-        taxa_padrao = st.session_state.get("calc_config_taxa_manual_padrao", Decimal("0.10"))
-        taxa_percentual = st.number_input(
-            "Taxa de Desconto Manual (% a.a.)",
-            min_value=0.0,
-            value=float((selic["valor_anual"] if selic else taxa_padrao) * 100),
-            step=0.1,
+    dados_indice = _consultar_taxa_cache(indice_escolhido)
+    if dados_indice is not None:
+        st.caption(
+            f"{indice_escolhido}: {formatar_percentual(float(dados_indice['valor']))} a.a. — referência "
+            f"{dados_indice['data_referencia'].strftime('%d/%m/%Y')} ({dados_indice['origem']})"
         )
-        return Decimal(str(taxa_percentual)) / Decimal(100), ORIGEM_MANUAL
-    return selic["valor_anual"], selic["origem"]
+    else:
+        st.caption(f"Não foi possível consultar {indice_escolhido} na API do BACEN agora — informe manualmente.")
+
+    usar_manual = st.checkbox("Informar taxa manualmente", value=dados_indice is None, key=f"{key_prefix}_manual")
+    if usar_manual:
+        taxa_percentual = st.number_input(
+            f"Taxa de {indice_escolhido} Manual (% a.a.)",
+            min_value=0.0,
+            value=float((dados_indice["valor"] if dados_indice else Decimal(0)) * 100),
+            step=0.1,
+            key=f"{key_prefix}_taxa_manual",
+        )
+        return indice_escolhido, Decimal(str(taxa_percentual)) / Decimal(100), ORIGEM_MANUAL, None
+
+    return indice_escolhido, dados_indice["valor"], dados_indice["origem"], dados_indice["data_referencia"]
 
 
-def _formulario_credito() -> tuple[Decimal, Decimal, Decimal, Decimal, date] | None:
+def _formulario_condicoes_classe(condicoes: CondicoesPagamentoClasse, sufixo_chave: str) -> dict:
+    """Formulário editável com as condições da classe selecionada,
+    pré-preenchido (melhor esforço) a partir do texto extraído pela IA — o
+    usuário sempre revisa/corrige antes do cálculo.
+
+    `sufixo_chave` (classe + identidade da extração) entra nas chaves dos
+    widgets de propósito — sem isso, o valor já digitado por um usuário
+    para uma classe "vazaria" ao trocar de classe ou ao chegar uma nova
+    extração, porque o Streamlit só usa `value=`/`index=` na primeira vez
+    que a identidade (chave) de um widget aparece na sessão.
+    """
+    st.markdown(f"#### Condições de Pagamento — {condicoes.classe}")
+    if condicoes.trechos_localizados:
+        with st.expander("Trechos localizados no Plano (auditoria)"):
+            st.table(
+                pd.DataFrame(
+                    [{"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto} for t in condicoes.trechos_localizados]
+                )
+            )
+    if condicoes.fluxos_alternativos:
+        st.info(f"Fluxos alternativos identificados: {condicoes.fluxos_alternativos}")
+    if condicoes.excecoes_regras_especiais:
+        st.info(f"Exceções/regras especiais identificadas: {condicoes.excecoes_regras_especiais}")
+
     col1, col2 = st.columns(2)
     with col1:
-        valor_credito = st.number_input("Valor do Crédito (R$)", min_value=0.0, value=100000.0, step=1000.0)
-        data_base = st.date_input("Data Base", value=date.today(), key="prec_data_base")
-    with col2:
         desagio_percentual = st.number_input(
-            "Deságio do Plano de RJ (%)",
-            min_value=0.0,
-            max_value=99.0,
-            value=40.0,
-            step=1.0,
-            help="Haircut que o plano de recuperação judicial impõe ao crédito — confirme com base "
-            "no termo identificado pela IA acima. O fluxo de recebimentos é montado sobre o valor "
-            "pós-deságio, não é o desconto de compra.",
+            "Deságio (%)", min_value=0.0, max_value=99.0,
+            value=(_parse_percentual(condicoes.desagio) or 0.0) * 100, step=1.0, key=f"prec_desagio_{sufixo_chave}",
         )
-        desagio = Decimal(str(desagio_percentual)) / Decimal(100)
-        valor_plano = Decimal(str(valor_credito)) * (Decimal(1) - desagio)
-        st.caption(f"Valor a receber pelo plano: {formatar_moeda(float(valor_plano))}")
-        valor_compra_input = st.number_input(
-            "Valor de Compra (R$)",
-            min_value=0.01,
-            value=60000.0,
-            step=1000.0,
-            help="Quanto você pretende pagar pelo crédito.",
+        carencia_periodos = st.number_input(
+            "Carência (nº de períodos)", min_value=0, value=_parse_inteiro(condicoes.carencia) or 0, key=f"prec_carencia_{sufixo_chave}"
         )
-        valor_compra = Decimal(str(valor_compra_input))
-
-    try:
-        return Decimal(str(valor_credito)), valor_plano, valor_compra, desagio, data_base
-    except InvalidOperation:
-        st.error("Não foi possível interpretar os valores informados.")
-        return None
-
-
-def _gerar_fluxo_automatico(valor_plano: Decimal, data_base: date) -> None:
-    with st.form("form_prec_plano"):
-        col1, col2 = st.columns(2)
-        with col1:
-            parcelas = st.number_input("Quantidade de Parcelas", min_value=1, value=12, step=1)
-            periodicidade = st.selectbox("Periodicidade", list(Periodicidade), format_func=lambda p: p.value, index=0)
-        with col2:
-            carencia = st.number_input("Carência (períodos até o 1º recebimento)", min_value=0, value=0, step=1)
-            juros_am_percentual = st.number_input(
-                "Juros do plano (% a.m.)",
-                min_value=0.0,
-                value=0.0,
-                step=0.01,
-                format="%.4f",
-                help="Confirme com base no termo 'Juros' identificado pela IA acima (ex.: 2,5% a.a. "
-                "≈ 0,21% a.m.). Capitalizam o saldo durante a carência e compõem a parcela (Tabela "
-                "Price). Se informados aqui, deixe a Correção Monetária abaixo em 0.",
+        numero_parcelas = st.number_input(
+            "Número de Parcelas", min_value=1, value=_parse_inteiro(condicoes.numero_parcelas) or 12, key=f"prec_num_parcelas_{sufixo_chave}"
+        )
+        periodicidades = list(Periodicidade)
+        periodicidade_sugerida = _parse_periodicidade(condicoes.periodicidade) or Periodicidade.MENSAL
+        periodicidade = st.selectbox(
+            "Periodicidade das Parcelas", periodicidades, index=periodicidades.index(periodicidade_sugerida),
+            format_func=lambda p: p.value, key=f"prec_periodicidade_{sufixo_chave}",
+        )
+        data_sugerida = _parse_data(condicoes.data_primeira_parcela) or date.today()
+        data_primeira_parcela = st.date_input("Data da 1ª Parcela", value=data_sugerida, key=f"prec_data_primeira_{sufixo_chave}")
+    with col2:
+        juros_percentual = st.number_input(
+            "Juros (%)", min_value=0.0, value=(_parse_percentual(condicoes.juros) or 0.0) * 100, step=0.1, key=f"prec_juros_{sufixo_chave}"
+        )
+        periodicidade_taxa_juros = st.selectbox(
+            "Periodicidade do Juros Informado", periodicidades,
+            index=periodicidades.index(_parse_periodicidade_taxa(condicoes.juros)), format_func=lambda p: p.value,
+            key=f"prec_juros_periodicidade_{sufixo_chave}",
+        )
+        tem_balao = st.checkbox(
+            "Possui parcela balão", value=condicoes.parcela_balao not in ("", "não localizado"), key=f"prec_tem_balao_{sufixo_chave}"
+        )
+        valor_balao = Decimal(0)
+        periodo_balao = 0
+        if tem_balao:
+            valor_balao_input = campo_moeda("Valor da Parcela Balão (R$)", 0.0, key=f"prec_valor_balao_{sufixo_chave}")
+            periodo_balao = st.number_input(
+                "Nº da Parcela em que ocorre o Balão", min_value=1, value=min(numero_parcelas, int(numero_parcelas)),
+                key=f"prec_periodo_balao_{sufixo_chave}",
             )
+            valor_balao = Decimal(str(valor_balao_input))
 
-        gerar = st.form_submit_button("Gerar Plano de Pagamento Automático", icon=icone("precificacao"))
-
-    if gerar:
-        juros_am = Decimal(str(juros_am_percentual)) / Decimal(100)
-        cronograma = gerar_cronograma(
-            ParametrosFinanciamento(
-                valor_financiado=valor_plano,
-                valor_entrada=Decimal(0),
-                taxa=juros_am,
-                periodicidade_taxa=Periodicidade.MENSAL,
-                periodicidade_parcela=periodicidade,
-                prazo=int(parcelas),
-                carencia=int(carencia),
-                data_inicial=data_base,
-                sistema=SistemaAmortizacao.PRICE,
-                regime=RegimeJuros.COMPOSTO,
-                carencia_paga_juros=False,
-            )
+        indice_sugerido = _parse_indice(condicoes.correcao_monetaria_indice)
+        correcao_indice, correcao_taxa_anual, correcao_origem, _ = _bloco_taxa_indice(
+            "Índice de Correção Monetária", indice_sugerido, f"prec_correcao_{sufixo_chave}"
         )
-        fluxo = [
-            novo_item(i, parcela.data, f"Parcela {i}", TipoFluxoItem.PARCELA, parcela.valor_parcela)
-            for i, parcela in enumerate((p for p in cronograma.parcelas if not p.carencia), start=1)
-        ]
-        st.session_state["prec_fluxo"] = fluxo
-        st.session_state.pop("prec_editor", None)
+
+    return {
+        "desagio": Decimal(str(desagio_percentual)) / Decimal(100),
+        "carencia_periodos": int(carencia_periodos),
+        "numero_parcelas": int(numero_parcelas),
+        "periodicidade": periodicidade,
+        "data_primeira_parcela": data_primeira_parcela,
+        "juros": Decimal(str(juros_percentual)) / Decimal(100),
+        "periodicidade_taxa_juros": periodicidade_taxa_juros,
+        "valor_balao": valor_balao,
+        "periodo_balao": int(periodo_balao),
+        "correcao_indice": correcao_indice,
+        "correcao_taxa_anual": correcao_taxa_anual,
+        "correcao_origem": correcao_origem,
+    }
 
 
-def _grafico_fluxo(resultado_vpl) -> go.Figure:
+# --- Etapa 5: gráficos e resultado -------------------------------------------
+
+
+def _grafico_fluxo_nominal(resultado: ResultadoPrecificacaoClasse) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(
         go.Bar(
-            x=[item.data for item in resultado_vpl.fluxo_descontado],
-            y=[float(item.valor) for item in resultado_vpl.fluxo_descontado],
-            name="Valor Nominal",
-            marker_color=CORES["grafico_indigo"],
+            x=[p.data for p in resultado.fluxo], y=[float(p.valor_nominal) for p in resultado.fluxo],
+            name="Fluxo Nominal", marker_color=CORES["grafico_indigo"],
         )
     )
-    fig.add_trace(
-        go.Scatter(
-            x=[item.data for item in resultado_vpl.fluxo_descontado],
-            y=[
-                float(item.valor_presente) if item.valor_presente is not None else 0.0
-                for item in resultado_vpl.fluxo_descontado
-            ],
-            mode="lines+markers",
-            name="Valor Presente",
-            line=dict(color=CORES["destaque"], width=3),
-        )
-    )
-    fig.update_layout(title="Fluxo Nominal x Valor Presente", xaxis_title="Data", yaxis_title="Valor (R$)")
+    fig.update_layout(title="Fluxo de Caixa Projetado (Nominal)", xaxis_title="Data", yaxis_title="Valor (R$)")
     return aplicar_tema_escuro_grafico(fig)
 
 
-def _renderizar_resultado(resultado: ResultadoPrecificacao) -> None:
-    rv = resultado.resultado_vpl
-    renderizar_kpis(
-        [
-            ("VPL", formatar_moeda(float(rv.vpl))),
-            ("TIR (a.a.)", formatar_percentual(float(rv.tir_anual)) if rv.tir_anual is not None else "-"),
-            ("Payback", rv.payback_data.strftime("%d/%m/%Y") if rv.payback_data else "Não atingido"),
-            (
-                "Payback Descontado",
-                resultado.payback_descontado_data.strftime("%d/%m/%Y") if resultado.payback_descontado_data else "Não atingido",
-            ),
-        ]
+def _grafico_fluxo_descontado(resultado: ResultadoPrecificacaoClasse) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=[p.data for p in resultado.fluxo], y=[float(p.valor_descontado) for p in resultado.fluxo],
+            name="Fluxo Descontado", marker_color=CORES["destaque"],
+        )
     )
-    renderizar_kpis(
-        [
-            ("Duration", f"{float(resultado.duration_anos):.2f} anos" if resultado.duration_anos is not None else "-"),
-            ("Ganho Líquido", formatar_moeda(float(rv.ganho_liquido))),
-            ("Preço Máximo (Breakeven)", formatar_moeda(float(resultado.preco_maximo_breakeven))),
-            (
-                f"Preço Máximo (TIR ≥ {formatar_percentual(float(resultado.taxa_alvo_anual))})",
-                formatar_moeda(float(resultado.preco_maximo_taxa_alvo)),
-            ),
-        ]
-    )
-    if rv.tir_anual is None:
-        st.warning("A TIR não convergiu para este fluxo — revise os valores informados.")
+    fig.update_layout(title="Fluxo de Caixa Descontado (Valor Presente)", xaxis_title="Data", yaxis_title="Valor Presente (R$)")
+    return aplicar_tema_escuro_grafico(fig)
 
-    st.markdown("#### Fluxo Descontado")
+
+def _grafico_linha_tempo(resultado: ResultadoPrecificacaoClasse) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=[p.data for p in resultado.fluxo], y=[float(p.valor_nominal) for p in resultado.fluxo],
+            mode="markers+lines", name="Pagamentos", line=dict(color=CORES["grafico_indigo"], width=2),
+        )
+    )
+    fig.update_layout(title="Linha do Tempo dos Pagamentos", xaxis_title="Data", yaxis_title="Valor (R$)")
+    return aplicar_tema_escuro_grafico(fig)
+
+
+def _grafico_evolucao_saldo(resultado: ResultadoPrecificacaoClasse) -> go.Figure:
+    fig = go.Figure()
+    saldo = float(resultado.vpl)
+    saldos = []
+    for p in sorted(resultado.fluxo, key=lambda item: item.data):
+        saldo -= float(p.valor_descontado)
+        saldos.append(saldo)
+    fig.add_trace(
+        go.Scatter(
+            x=[p.data for p in sorted(resultado.fluxo, key=lambda item: item.data)], y=saldos,
+            mode="lines", fill="tozeroy", name="Saldo do VPL restante", line=dict(color=CORES["grafico_indigo"], width=2),
+        )
+    )
+    fig.update_layout(title="Evolução do Saldo (VPL restante a receber)", xaxis_title="Data", yaxis_title="Saldo (R$)")
+    return aplicar_tema_escuro_grafico(fig)
+
+
+def _renderizar_resultado(resultado: ResultadoPrecificacaoClasse) -> None:
+    if not resultado.metodologia_validada:
+        st.warning(
+            "⚠️ Metodologia de cálculo ainda não validada contra a planilha oficial de VPL da AMF3 "
+            "Capital — os números abaixo usam a convenção XNPV (dias corridos/365, padrão Excel/"
+            "Google Sheets). Trate como uma estimativa até a validação ser concluída."
+        )
+
+    st.markdown("#### Resumo Financeiro")
+    renderizar_kpis(
+        [
+            ("Valor Nominal do Crédito", formatar_moeda(float(resultado.valor_nominal_credito))),
+            ("Classe", resultado.classe),
+            (
+                "Taxa de Desconto",
+                f"{formatar_percentual(float(resultado.taxa_desconto_anual))} a.a.",
+            ),
+            (
+                "Data da Taxa",
+                resultado.data_taxa_desconto.strftime("%d/%m/%Y") if resultado.data_taxa_desconto else "Manual",
+            ),
+        ]
+    )
+    st.caption(f"Origem da taxa de desconto: {resultado.origem_taxa_desconto}")
+
+    st.markdown("#### Valor Presente Líquido")
+    st.metric("VPL", formatar_moeda(float(resultado.vpl)))
+
+    st.markdown("#### Fluxo de Caixa")
     df = pd.DataFrame(
         [
             {
-                "Data": item.data.strftime("%d/%m/%Y"),
-                "Descrição": item.descricao,
-                "Valor Nominal": formatar_moeda(float(item.valor)),
-                "Valor Presente": formatar_moeda(float(item.valor_presente)) if item.valor_presente is not None else "-",
+                "Nº": p.numero, "Data": p.data.strftime("%d/%m/%Y"), "Descrição": p.descricao,
+                "Valor Nominal": formatar_moeda(float(p.valor_nominal)), "Valor Presente": formatar_moeda(float(p.valor_descontado)),
             }
-            for item in rv.fluxo_descontado
+            for p in sorted(resultado.fluxo, key=lambda item: item.data)
         ]
     )
     st.dataframe(df, width="stretch", hide_index=True)
 
-    st.markdown("#### Gráfico")
-    with container_grafico("prec_fluxo"):
-        st.plotly_chart(_grafico_fluxo(rv), width="stretch")
+    with st.expander("Memória de Cálculo (auditoria)"):
+        for linha in resultado.memoria_calculo:
+            st.markdown(f"- {linha}")
+
+    st.markdown("#### Dashboard")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        with container_grafico("prec_fluxo_nominal"):
+            st.plotly_chart(_grafico_fluxo_nominal(resultado), width="stretch")
+        with container_grafico("prec_linha_tempo"):
+            st.plotly_chart(_grafico_linha_tempo(resultado), width="stretch")
+    with col_b:
+        with container_grafico("prec_fluxo_descontado"):
+            st.plotly_chart(_grafico_fluxo_descontado(resultado), width="stretch")
+        with container_grafico("prec_evolucao_saldo"):
+            st.plotly_chart(_grafico_evolucao_saldo(resultado), width="stretch")
 
     st.divider()
-    col_export, col_cenario = st.columns(2)
-    with col_export:
-        st.markdown("**Exportar**")
-        sub_a, sub_b = st.columns(2)
-        with sub_a:
-            if st.button("Excel", key="prec_btn_excel", icon=icone("exportar"), width="stretch"):
-                caminho = EXPORTADOS_DIR / "precificacao_inteligente.xlsx"
-                exportar_excel_precificacao(resultado, caminho)
-                st.session_state["prec_export_xlsx"] = str(caminho)
-        with sub_b:
-            if st.button("Word", key="prec_btn_word", icon=icone("exportar"), width="stretch"):
-                caminho = EXPORTADOS_DIR / "precificacao_inteligente.docx"
-                exportar_word_precificacao(resultado, caminho)
-                st.session_state["prec_export_docx"] = str(caminho)
+    st.markdown("**Exportar**")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("Excel", key="prec_btn_excel", icon=icone("exportar"), width="stretch"):
+            caminho = EXPORTADOS_DIR / "precificacao_inteligente.xlsx"
+            exportar_excel_precificacao(resultado, caminho)
+            st.session_state["prec_export_xlsx"] = str(caminho)
+    with col_b:
+        if st.button("Word", key="prec_btn_word", icon=icone("exportar"), width="stretch"):
+            caminho = EXPORTADOS_DIR / "precificacao_inteligente.docx"
+            exportar_word_precificacao(resultado, caminho)
+            st.session_state["prec_export_docx"] = str(caminho)
 
-        for chave_sessao, rotulo in (("prec_export_xlsx", "Baixar Excel"), ("prec_export_docx", "Baixar Word")):
-            caminho_str = st.session_state.get(chave_sessao)
-            if caminho_str and Path(caminho_str).exists():
-                caminho = Path(caminho_str)
-                st.download_button(rotulo, caminho.read_bytes(), file_name=caminho.name, key=f"prec_download_{chave_sessao}")
+    for chave_sessao, rotulo in (("prec_export_xlsx", "Baixar Excel"), ("prec_export_docx", "Baixar Word")):
+        caminho_str = st.session_state.get(chave_sessao)
+        if caminho_str and Path(caminho_str).exists():
+            caminho = Path(caminho_str)
+            st.download_button(rotulo, caminho.read_bytes(), file_name=caminho.name, key=f"prec_download_{chave_sessao}")
 
-    with col_cenario:
-        st.markdown("**Salvar para comparação**")
-        st.caption("Cenário salvo compartilha a aba Comparação de Cenários com a Simulação de Financiamento.")
-        with st.form("form_salvar_cenario_prec", border=False):
-            nome_cenario = st.text_input("Nome do cenário", value="Precificação de Crédito")
-            if st.form_submit_button("Salvar cenário", icon=icone("comparacao")):
-                salvar_cenario(nome_cenario, "vpl", rv)
-                st.success(f'Cenário "{nome_cenario}" salvo. Veja a Comparação de Cenários na Simulação de Financiamento.')
+
+# --- Página principal ---------------------------------------------------------
 
 
 def renderizar_precificacao() -> None:
     layout.renderizar_titulo_pagina("precificacao", "Precificação Inteligente de Créditos")
-    st.caption("Extração automática do Plano de RJ via IA + cálculo financeiro auditável em Python")
+    st.caption("A IA localiza as condições do Plano de RJ; todo o cálculo de VPL é feito em Python.")
 
-    arquivo = st.file_uploader("Selecionar PDF do Plano de Recuperação Judicial", type=["pdf"], key="prec_uploader")
-    if arquivo is not None:
-        chave_cache = f"{arquivo.name}_{arquivo.size}"
-        if st.session_state.get("prec_chave_cache") != chave_cache:
-            if st.button("Analisar Plano com IA", type="primary", icon=icone("precificacao"), key="prec_btn_analisar"):
-                extracao = _processar_plano(arquivo)
-                if extracao is not None:
-                    st.session_state["prec_extracao"] = extracao
-                    st.session_state["prec_chave_cache"] = chave_cache
-                    st.rerun()
+    st.markdown("#### Importação do Plano de Recuperação Judicial")
+    modo = st.radio("Como importar o Plano", ["Upload de PDF", "Colar trecho de texto"], horizontal=True, key="prec_modo_importacao")
+
+    if modo == "Upload de PDF":
+        arquivo = st.file_uploader("Selecionar PDF do Plano de RJ", type=["pdf"], key="prec_uploader")
+        if arquivo is not None:
+            chave_cache = f"{arquivo.name}_{arquivo.size}"
+            if st.session_state.get("prec_chave_cache") != chave_cache:
+                if st.button("Analisar Plano com IA", type="primary", icon=icone("precificacao"), key="prec_btn_analisar_pdf"):
+                    extracao = _processar_pdf(arquivo)
+                    if extracao is not None:
+                        st.session_state["prec_extracao"] = extracao
+                        st.session_state["prec_chave_cache"] = chave_cache
+                        st.session_state.pop("prec_resultado", None)
+                        st.rerun()
+    else:
+        texto_colado = st.text_area(
+            "Cole aqui o trecho do Plano referente ao pagamento dos credores", height=180, key="prec_texto_colado"
+        )
+        if texto_colado.strip():
+            chave_cache = f"texto_{hash(texto_colado.strip())}"
+            if st.session_state.get("prec_chave_cache") != chave_cache:
+                if st.button("Analisar Texto com IA", type="primary", icon=icone("precificacao"), key="prec_btn_analisar_texto"):
+                    extracao = _processar_texto_colado(texto_colado.strip())
+                    if extracao is not None:
+                        st.session_state["prec_extracao"] = extracao
+                        st.session_state["prec_chave_cache"] = chave_cache
+                        st.session_state.pop("prec_resultado", None)
+                        st.rerun()
 
     extracao = st.session_state.get("prec_extracao")
     if extracao is not None:
-        _renderizar_extracao(extracao)
+        _renderizar_quadro_geral(extracao)
     else:
         st.info(
-            'Envie o PDF do Plano de Recuperação Judicial e clique em "Analisar Plano com IA" para '
-            "extrair os termos automaticamente — ou preencha os parâmetros manualmente abaixo, sem "
-            "upload."
+            "Envie o PDF (ou cole um trecho) do Plano acima e clique em \"Analisar\" para identificar "
+            "automaticamente as condições de pagamento — ou preencha manualmente abaixo, sem IA."
         )
 
     st.divider()
-    dados_credito = _formulario_credito()
-    if dados_credito is None:
-        return
-    valor_credito, valor_plano, valor_compra, desagio, data_base = dados_credito
+    st.markdown("#### Dados da Operação")
+    col1, col2 = st.columns(2)
+    with col1:
+        valor_nominal_credito = campo_moeda("Valor Nominal do Crédito (R$)", 100000.0, min_value=0.01, key="prec_valor_nominal")
+    with col2:
+        classe_escolhida = st.selectbox("Classe do Crédito", CLASSES_RJ_PADRAO, key="prec_classe_escolhida")
 
-    taxa_desconto, origem_taxa = _bloco_taxa_desconto()
+    condicoes_classe = (
+        (extracao.condicoes_por_classe.get(classe_escolhida) if extracao else None)
+        or CondicoesPagamentoClasse(classe=classe_escolhida)
+    )
+    sufixo_chave = f"{classe_escolhida}_{id(extracao) if extracao else 0}"
 
-    with st.expander("Correção Monetária e Taxa-Alvo (opcional)"):
-        correcao_percentual = st.number_input("Correção Monetária (% a.a.)", min_value=0.0, value=0.0, step=0.5)
-        taxa_alvo_percentual = st.number_input(
-            "Taxa de Retorno Mínima Desejada (% a.a.) — usada no Preço Máximo Recomendado",
-            min_value=0.0,
-            value=float(taxa_desconto * 100) + 5.0,
-            step=0.5,
-        )
-    correcao = Decimal(str(correcao_percentual)) / Decimal(100)
-    taxa_alvo = Decimal(str(taxa_alvo_percentual)) / Decimal(100)
+    st.divider()
+    dados_formulario = _formulario_condicoes_classe(condicoes_classe, sufixo_chave)
 
-    st.markdown("#### Plano de Pagamento")
-    _gerar_fluxo_automatico(valor_plano, data_base)
+    st.divider()
+    st.markdown("#### Taxa de Desconto")
+    _, taxa_desconto_anual, origem_taxa_desconto, data_taxa_desconto = _bloco_taxa_indice(
+        "Fonte da Taxa de Desconto", "SELIC", "prec_desconto", permitir_nenhum=False
+    )
 
-    if "prec_fluxo" not in st.session_state:
-        st.info('Gere um plano automático acima ou defina um plano personalizado adicionando linhas na tabela abaixo.')
-        st.session_state["prec_fluxo"] = []
-
-    st.caption("Edite livremente as parcelas — adicione recebimentos extraordinários ou remova linhas conforme necessário.")
-    fluxo_editado = editor_fluxo(st.session_state["prec_fluxo"], key="prec_editor")
-
-    if st.button("Calcular Precificação", type="primary", icon=icone("precificacao")):
-        if not fluxo_editado:
-            st.error("Defina ao menos um recebimento no plano de pagamento.")
-            return
-        st.session_state["prec_fluxo"] = fluxo_editado
-        parametros = ParametrosVPL(
-            valor_credito=valor_credito,
-            valor_compra=valor_compra,
-            desagio=desagio,
-            data_base=data_base,
-            fluxo_recebimentos=fluxo_editado,
-            taxa_desconto_anual=taxa_desconto,
-            origem_taxa_desconto=origem_taxa,
-            correcao_monetaria_anual=correcao,
-        )
+    if st.button("🧮 Calcular Precificação", type="primary", icon=icone("precificacao"), key="prec_btn_calcular"):
         try:
-            resultado_vpl = calcular_resultado_vpl(parametros)
-        except ValueError as exc:
-            st.error(str(exc))
-            return
+            juros_periodo = dados_formulario["juros"]
+            if dados_formulario["periodicidade_taxa_juros"] != dados_formulario["periodicidade"]:
+                from src.calculadora.amortizacao import converter_taxa
+                from src.calculadora.models import RegimeJuros
 
-        fluxo_tuplas = [(item.data, item.valor) for item in resultado_vpl.fluxo_descontado]
-        duration = calcular_duration(fluxo_tuplas, taxa_desconto, data_base)
-        fluxo_completo = [(data_base, -valor_compra), *fluxo_tuplas]
-        pb_desc_data, pb_desc_meses = calcular_payback_descontado(fluxo_completo, taxa_desconto, data_base)
-        preco_taxa_alvo = preco_maximo_para_taxa_alvo(fluxo_tuplas, taxa_alvo, data_base)
+                juros_periodo = converter_taxa(
+                    dados_formulario["juros"], dados_formulario["periodicidade_taxa_juros"], dados_formulario["periodicidade"], RegimeJuros.COMPOSTO
+                )
 
-        extracao_atual = extracao or ExtracaoPlano(arquivo_nome="(preenchido manualmente)", data_analise=date.today())
-        resultado = ResultadoPrecificacao(
-            extracao=extracao_atual,
-            resultado_vpl=resultado_vpl,
-            duration_anos=duration,
-            payback_descontado_data=pb_desc_data,
-            payback_descontado_meses=pb_desc_meses,
-            preco_maximo_breakeven=resultado_vpl.valor_economico,
-            preco_maximo_taxa_alvo=preco_taxa_alvo,
-            taxa_alvo_anual=taxa_alvo,
-        )
-        st.session_state["prec_resultado"] = resultado
-        st.session_state.pop("prec_export_xlsx", None)
-        st.session_state.pop("prec_export_docx", None)
+            parametros = ParametrosCalculoClasse(
+                classe=classe_escolhida,
+                valor_nominal_credito=Decimal(str(valor_nominal_credito)),
+                desagio=dados_formulario["desagio"],
+                carencia_periodos=dados_formulario["carencia_periodos"],
+                correcao_indice=dados_formulario["correcao_indice"],
+                correcao_taxa_anual=dados_formulario["correcao_taxa_anual"],
+                juros=juros_periodo,
+                numero_parcelas=dados_formulario["numero_parcelas"],
+                periodicidade=dados_formulario["periodicidade"],
+                data_primeira_parcela=dados_formulario["data_primeira_parcela"],
+                data_base=date.today(),
+                valor_balao=dados_formulario["valor_balao"],
+                periodo_balao=dados_formulario["periodo_balao"],
+                taxa_desconto_anual=taxa_desconto_anual,
+                origem_taxa_desconto=origem_taxa_desconto,
+                data_taxa_desconto=data_taxa_desconto,
+                condicoes=condicoes_classe,
+            )
+            resultado = calcular_precificacao_classe(parametros)
+            st.session_state["prec_resultado"] = resultado
+            st.session_state.pop("prec_export_xlsx", None)
+            st.session_state.pop("prec_export_docx", None)
+        except (ValueError, InvalidOperation) as exc:
+            st.error(f"Não foi possível calcular o VPL: {exc}")
 
     resultado = st.session_state.get("prec_resultado")
     if resultado is not None:

@@ -16,7 +16,13 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from config import CORES, EXPORTADOS_DIR, possui_chave_openai
-from interface.calculadora.componentes import container_grafico, aplicar_tema_escuro_grafico, renderizar_kpis, salvar_cenario
+from interface.calculadora.componentes import (
+    aplicar_tema_escuro_grafico,
+    campo_moeda,
+    container_grafico,
+    renderizar_kpis,
+    salvar_cenario,
+)
 from interface.icones import icone
 from src import ia
 from src.calculadora.amortizacao import gerar_cronograma
@@ -106,11 +112,11 @@ def _formulario() -> ParametrosFinanciamento | None:
     with st.form("form_financiamento"):
         col1, col2 = st.columns(2)
         with col1:
-            valor_financiado = st.number_input(
-                "Valor Financiado (R$)", min_value=0.0, value=_numero_ou_padrao(sugestao.get("valor_financiado"), 100000.0), step=1000.0
+            valor_financiado = campo_moeda(
+                "Valor Financiado (R$)", _numero_ou_padrao(sugestao.get("valor_financiado"), 100000.0)
             )
-            valor_entrada = st.number_input(
-                "Valor de Entrada (R$)", min_value=0.0, value=_numero_ou_padrao(sugestao.get("valor_entrada"), 0.0), step=1000.0
+            valor_entrada = campo_moeda(
+                "Valor de Entrada (R$)", _numero_ou_padrao(sugestao.get("valor_entrada"), 0.0)
             )
             taxa_percentual = st.number_input(
                 "Taxa de Juros (%)", min_value=0.0, value=_numero_ou_padrao(sugestao.get("taxa_percentual"), 2.0), step=0.1

@@ -14,7 +14,7 @@ from typing import Callable
 
 from openai import OpenAI, OpenAIError
 
-from config import OPENAI_API_KEY, OPENAI_MODEL, configurar_logging, possui_chave_openai
+from config import CLASSES_RJ_PADRAO, OPENAI_API_KEY, OPENAI_MODEL, configurar_logging, possui_chave_openai
 from src import analise_quorum, estrategia
 from src.leitor_pdf import PaginaExtraida
 from src.models import ResultadoExtracao
@@ -30,7 +30,7 @@ from src.models_peticao_inicial import (
     TrechoFiscal,
 )
 from src.models_analise_documentos import AnaliseDocumento, ItemComContexto
-from src.models_precificacao import ExtracaoPlano, TermosClasse, TermosGerais, TrechoPlano
+from src.models_precificacao import CondicoesPagamentoClasse, ExtracaoPlanoPorClasse, TrechoPlano
 
 logger = configurar_logging()
 
@@ -555,179 +555,165 @@ def gerar_relatorio_peticao_inicial(
 
 
 # =============================================================================
-# Precificação Inteligente de Créditos — extração (nunca cálculo) dos termos
-# financeiros de um Plano de Recuperação Judicial. Reaproveita o mesmo
-# gateway (_client/_chamar_modelo_bruto/_chamar_modelo_json) e a mesma
-# infraestrutura de leitura em blocos (_texto_paginas/_dividir_em_blocos/
-# _LIMIAR_CARACTERES_TEXTO_UNICO/_TAMANHO_ALVO_BLOCO) já usados pela Petição
-# Inicial acima — nenhuma função dos blocos anteriores é alterada em
-# comportamento. Todo cálculo financeiro (VPL, TIR, parcelas etc.) é feito à
-# parte, em Python puro, em `src/calculadora/` — esta seção só interpreta texto.
+# Precificação Inteligente de Créditos — extração (nunca cálculo) das
+# condições de pagamento de um Plano de Recuperação Judicial, organizadas
+# pelas 4 classes padrão (`config.CLASSES_RJ_PADRAO`). Aceita tanto o texto
+# extraído de um PDF quanto um trecho colado pelo usuário — ambos passam
+# por `extrair_condicoes_plano(texto, ...)` e produzem exatamente o mesmo
+# resultado. Reaproveita o mesmo gateway (_client/_chamar_modelo_bruto/
+# _chamar_modelo_json) e a mesma infraestrutura de chunking por caracteres
+# (_dividir_texto_em_blocos, definida mais abaixo neste arquivo) já usada
+# pela Análise de Documentos — nenhuma função dos blocos anteriores é
+# alterada em comportamento. Todo cálculo financeiro (VPL, fluxo de caixa
+# etc.) é feito à parte, em Python puro, em `src/calculadora/` — esta
+# seção só interpreta texto.
 # =============================================================================
 
 _INSTRUCOES_PRECIFICACAO = (
     "Você é um analista técnico que apoia a equipe de aquisição de créditos da AMF3 Capital na "
-    "leitura de Planos de Recuperação Judicial. Sua única tarefa é EXTRAIR e INTERPRETAR os termos "
-    "financeiros do plano — nunca realizar nenhum cálculo (VPL, TIR, valor de parcelas, juros "
-    "compostos etc.): todo cálculo é feito separadamente, em Python, a partir dos termos que você "
-    "extrair. Responda sempre em português do Brasil, de forma técnica e objetiva. Baseie-se "
-    "exclusivamente no texto fornecido — nunca invente percentuais, prazos, datas ou condições que "
-    "não estejam no documento. Quando uma informação não estiver presente, diga isso explicitamente "
-    "em vez de adivinhar."
+    "leitura de Planos de Recuperação Judicial. Sua única tarefa é EXTRAIR e INTERPRETAR as "
+    "condições de pagamento previstas no plano para cada classe de credores — nunca realizar "
+    "nenhum cálculo (VPL, TIR, valor de parcelas, juros compostos etc.): todo cálculo é feito "
+    "separadamente, em Python, a partir das condições que você extrair. Responda sempre em "
+    "português do Brasil, de forma técnica e objetiva. Baseie-se exclusivamente no texto "
+    "fornecido — nunca invente percentuais, prazos, datas, índices ou condições que não estejam "
+    "no documento. Quando uma informação não estiver presente, diga isso explicitamente em vez "
+    "de adivinhar."
 )
 
-_ESQUEMA_JSON_PLANO = """{
-  "termos_gerais": {
-    "desagio": "string", "carencia": "string", "juros": "string",
-    "correcao_monetaria": "string", "periodicidade_parcelas": "string",
-    "quantidade_parcelas": "string", "data_inicio_pagamentos": "string"
-  },
-  "termos_por_classe": [
-    {"classe": "string", "desagio": "string", "carencia": "string", "juros": "string",
-     "periodicidade_parcelas": "string", "quantidade_parcelas": "string", "observacoes": "string"}
-  ],
-  "eventos_especiais": ["string"],
-  "resumo_plano": "string",
-  "trechos_localizados": [{"pagina": "string", "trecho": "string", "contexto": "string"}]
-}"""
+
+def _esquema_json_plano_por_classe() -> str:
+    """Monta o esquema JSON de extração dinamicamente a partir de
+    `config.CLASSES_RJ_PADRAO` — nunca duplica os nomes das classes."""
+    campos_classe = (
+        '{"desagio": "string", "carencia": "string", "correcao_monetaria_indice": "string", '
+        '"juros": "string", "numero_parcelas": "string", "periodicidade": "string", '
+        '"data_primeira_parcela": "string", "parcela_balao": "string", '
+        '"fluxos_alternativos": "string", "excecoes_regras_especiais": "string", '
+        '"trechos_localizados": [{"pagina": "string", "trecho": "string", "contexto": "string"}]}'
+    )
+    linhas_classe = ",\n    ".join(f'"{classe}": {campos_classe}' for classe in CLASSES_RJ_PADRAO)
+    return "{\n  \"condicoes_por_classe\": {\n    " + linhas_classe + "\n  }\n}"
 
 
-def _prompt_mapa_plano(bloco_texto: str, indice: int, total: int, pagina_inicial: int, pagina_final: int) -> str:
+def _prompt_mapa_plano_classe(bloco_texto: str, indice: int, total: int) -> str:
+    classes_texto = "; ".join(CLASSES_RJ_PADRAO)
     return (
-        f"Você está lendo o BLOCO {indice}/{total} (páginas {pagina_inicial} a {pagina_final}) de um "
-        "Plano de Recuperação Judicial. Liste apenas fatos brutos ENCONTRADOS NESTE BLOCO sobre: "
-        "deságio, carência, juros, correção monetária, periodicidade e quantidade de parcelas, data "
-        "de início dos pagamentos, termos diferenciados por classe de credores, e quaisquer eventos "
-        "especiais (parcelas balão, condições especiais, garantias). Para cada informação relevante, "
-        "transcreva o número da página e o trecho literal (verbatim) — não resuma, não interprete, e "
-        "não conclua 'não localizado' aqui (essa decisão só é tomada depois de ver todos os blocos). "
+        f"Você está lendo o BLOCO {indice}/{total} de um Plano de Recuperação Judicial. Para cada "
+        f"uma das classes de credores ({classes_texto}) mencionada NESTE BLOCO, liste apenas fatos "
+        "brutos ENCONTRADOS AQUI sobre: deságio, carência, índice de correção monetária, juros, "
+        "número de parcelas, periodicidade, data da primeira parcela, parcela balão, fluxos "
+        "alternativos e exceções/regras especiais. Para cada informação relevante, transcreva o "
+        "número da página e o trecho literal (verbatim) — não resuma, não interprete, e não "
+        "conclua 'não localizado' aqui (essa decisão só é tomada depois de ver todos os blocos). "
         "Se nada aparecer neste bloco, escreva 'Nada neste bloco.'\n\n"
         f"Texto do bloco:\n{bloco_texto}"
     )
 
 
-def _prompt_reducao_plano(arquivo_nome: str, texto_fonte: str) -> str:
+def _prompt_reducao_plano_classe(arquivo_nome: str, texto_fonte: str) -> str:
     return (
         f"Documento analisado: {arquivo_nome}\n\n"
         "A seguir está o conteúdo (ou as notas já extraídas por blocos) de um Plano de Recuperação "
-        "Judicial. Produza a extração final dos termos financeiros, respondendo SOMENTE com um "
-        f"objeto JSON no formato exato abaixo (sem markdown, sem texto fora do JSON):\n\n"
-        f"{_ESQUEMA_JSON_PLANO}\n\n"
-        "Regras: nunca invente um percentual, prazo, data ou condição que não esteja no texto — "
-        f"quando algo não for encontrado, escreva exatamente \"{NAO_LOCALIZADO}\" no campo "
-        "correspondente. 'termos_por_classe' só deve ser preenchido se o plano efetivamente "
-        "diferenciar condições por classe de credores — liste vazio ([]) caso contrário, nunca "
-        "invente uma diferenciação que não exista no texto. 'eventos_especiais' deve trazer, em "
-        "texto livre, qualquer condição fora do padrão simples de parcelas fixas (parcelas balão, "
-        "carência diferenciada, garantias, condições de aceleração de vencimento etc.) — liste "
-        "vazio ([]) se não houver. 'resumo_plano' deve resumir objetivamente a forma de pagamento "
-        "prevista. 'trechos_localizados' deve trazer, para cada termo extraído, a página, o trecho "
-        "literal (verbatim, nunca parafraseado ou inventado) e o contexto — nunca invente um "
-        "trecho. Você está apenas extraindo e interpretando o texto: NUNCA calcule valores de "
-        "parcela, VPL, TIR ou qualquer resultado financeiro — isso é feito à parte, em Python.\n\n"
+        "Judicial — pode ser o texto integral de um PDF ou um trecho colado diretamente pelo "
+        "usuário; trate os dois casos exatamente da mesma forma. Produza a extração final das "
+        "condições de pagamento POR CLASSE DE CREDORES, respondendo SOMENTE com um objeto JSON no "
+        f"formato exato abaixo (sem markdown, sem texto fora do JSON):\n\n{_esquema_json_plano_por_classe()}\n\n"
+        "Regras: use exatamente as 4 chaves de classe indicadas no esquema, mesmo que uma classe "
+        f"não tenha nenhuma condição localizada (nesse caso, escreva \"{NAO_LOCALIZADO}\" em todos "
+        "os campos de texto dessa classe e deixe 'trechos_localizados' vazio, []). Nunca invente um "
+        "percentual, prazo, data, índice ou condição que não esteja no texto — quando algo não for "
+        f"encontrado, escreva exatamente \"{NAO_LOCALIZADO}\" no campo correspondente. "
+        "'parcela_balao' deve descrever a condição encontrada (ex.: '20% do saldo no 36º mês') ou "
+        f"\"{NAO_LOCALIZADO}\" se não houver menção. 'trechos_localizados' deve trazer, para cada "
+        "condição extraída, a página, o trecho literal (verbatim, nunca parafraseado ou inventado) "
+        "e o contexto. Você está apenas extraindo e interpretando o texto: NUNCA calcule valores de "
+        "parcela, VPL ou qualquer resultado financeiro — isso é feito à parte, em Python.\n\n"
         f"Conteúdo:\n{texto_fonte}"
     )
 
 
-def _construir_extracao_plano(dados: dict, arquivo_nome: str, avisos: list[str]) -> ExtracaoPlano:
+def _construir_extracao_plano_classe(dados: dict, arquivo_nome: str, avisos: list[str]) -> ExtracaoPlanoPorClasse:
     """Constrói a extração a partir do dict retornado pela IA de forma
     defensiva — mesma disciplina de `_construir_relatorio` acima: chaves
     ausentes viram o padrão do dataclass, itens malformados são pulados
-    individualmente em vez de derrubar tudo.
+    individualmente em vez de derrubar tudo. Garante que as 4 classes
+    padrão estejam sempre presentes no resultado, mesmo que a IA não tenha
+    retornado nada para alguma delas.
     """
-    termos_gerais_dados = dados.get("termos_gerais")
-    if not isinstance(termos_gerais_dados, dict):
-        termos_gerais_dados = {}
-    termos_gerais = TermosGerais(
-        desagio=str(termos_gerais_dados.get("desagio", NAO_LOCALIZADO)),
-        carencia=str(termos_gerais_dados.get("carencia", NAO_LOCALIZADO)),
-        juros=str(termos_gerais_dados.get("juros", NAO_LOCALIZADO)),
-        correcao_monetaria=str(termos_gerais_dados.get("correcao_monetaria", NAO_LOCALIZADO)),
-        periodicidade_parcelas=str(termos_gerais_dados.get("periodicidade_parcelas", NAO_LOCALIZADO)),
-        quantidade_parcelas=str(termos_gerais_dados.get("quantidade_parcelas", NAO_LOCALIZADO)),
-        data_inicio_pagamentos=str(termos_gerais_dados.get("data_inicio_pagamentos", NAO_LOCALIZADO)),
-    )
+    condicoes_dados = dados.get("condicoes_por_classe")
+    if not isinstance(condicoes_dados, dict):
+        condicoes_dados = {}
 
-    termos_por_classe: list[TermosClasse] = []
-    for item in dados.get("termos_por_classe") or []:
-        try:
-            termos_por_classe.append(
-                TermosClasse(
-                    classe=str(item.get("classe", NAO_LOCALIZADO)),
-                    desagio=str(item.get("desagio", NAO_LOCALIZADO)),
-                    carencia=str(item.get("carencia", NAO_LOCALIZADO)),
-                    juros=str(item.get("juros", NAO_LOCALIZADO)),
-                    periodicidade_parcelas=str(item.get("periodicidade_parcelas", NAO_LOCALIZADO)),
-                    quantidade_parcelas=str(item.get("quantidade_parcelas", NAO_LOCALIZADO)),
-                    observacoes=str(item.get("observacoes", "")),
+    condicoes_por_classe: dict[str, CondicoesPagamentoClasse] = {}
+    for classe in CLASSES_RJ_PADRAO:
+        dados_classe = condicoes_dados.get(classe)
+        if not isinstance(dados_classe, dict):
+            dados_classe = {}
+
+        trechos: list[TrechoPlano] = []
+        for item in dados_classe.get("trechos_localizados") or []:
+            try:
+                trechos.append(
+                    TrechoPlano(
+                        pagina=str(item.get("pagina") or "-"),
+                        trecho=str(item["trecho"]),
+                        contexto=str(item.get("contexto") or ""),
+                    )
                 )
-            )
-        except (AttributeError, TypeError):
-            continue
+            except (KeyError, TypeError, AttributeError):
+                continue
 
-    eventos_especiais = [str(item) for item in (dados.get("eventos_especiais") or []) if str(item).strip()]
+        condicoes_por_classe[classe] = CondicoesPagamentoClasse(
+            classe=classe,
+            desagio=str(dados_classe.get("desagio", NAO_LOCALIZADO)),
+            carencia=str(dados_classe.get("carencia", NAO_LOCALIZADO)),
+            correcao_monetaria_indice=str(dados_classe.get("correcao_monetaria_indice", NAO_LOCALIZADO)),
+            juros=str(dados_classe.get("juros", NAO_LOCALIZADO)),
+            numero_parcelas=str(dados_classe.get("numero_parcelas", NAO_LOCALIZADO)),
+            periodicidade=str(dados_classe.get("periodicidade", NAO_LOCALIZADO)),
+            data_primeira_parcela=str(dados_classe.get("data_primeira_parcela", NAO_LOCALIZADO)),
+            parcela_balao=str(dados_classe.get("parcela_balao", NAO_LOCALIZADO)),
+            fluxos_alternativos=str(dados_classe.get("fluxos_alternativos", "")),
+            excecoes_regras_especiais=str(dados_classe.get("excecoes_regras_especiais", "")),
+            trechos_localizados=trechos,
+        )
 
-    trechos: list[TrechoPlano] = []
-    for item in dados.get("trechos_localizados") or []:
-        try:
-            trechos.append(
-                TrechoPlano(
-                    pagina=str(item.get("pagina") or "-"),
-                    trecho=str(item["trecho"]),
-                    contexto=str(item.get("contexto") or ""),
-                )
-            )
-        except (KeyError, TypeError, AttributeError):
-            continue
-
-    return ExtracaoPlano(
+    return ExtracaoPlanoPorClasse(
         arquivo_nome=arquivo_nome,
         data_analise=date.today(),
-        termos_gerais=termos_gerais,
-        termos_por_classe=termos_por_classe,
-        eventos_especiais=eventos_especiais,
-        resumo_plano=str(dados.get("resumo_plano", "")),
-        trechos_localizados=trechos,
+        condicoes_por_classe=condicoes_por_classe,
         avisos=avisos,
     )
 
 
-def extrair_termos_plano(
-    paginas: list[PaginaExtraida],
+def extrair_condicoes_plano(
+    texto: str,
     arquivo_nome: str,
     progress_callback: Callable[[str], None] | None = None,
-) -> ExtracaoPlano:
-    """Extrai (via IA) os termos financeiros de um Plano de Recuperação
-    Judicial já lido (`src.leitor_pdf.ler_pdf`) — só interpretação do texto,
-    NUNCA cálculo (todo cálculo é feito em `src/calculadora/` a partir dos
-    números que o usuário confirma com base nesta extração). Documentos
-    grandes são divididos em blocos (map) e consolidados numa única chamada
-    final (reduce), mesmo padrão de `gerar_relatorio_peticao_inicial`.
+) -> ExtracaoPlanoPorClasse:
+    """Extrai (via IA) as condições de pagamento por classe de um Plano de
+    Recuperação Judicial — aceita tanto o texto extraído de um PDF
+    (`src.leitor_pdf.ler_pdf` + `_texto_paginas`) quanto um trecho colado
+    diretamente pelo usuário; ambos os caminhos chamam esta mesma função com
+    um `texto` simples e produzem exatamente o mesmo resultado. Só
+    interpretação do texto, NUNCA cálculo (todo cálculo é feito em
+    `src/calculadora/` a partir dos números que o usuário confirma com base
+    nesta extração). Documentos grandes são divididos em blocos por
+    caracteres (map) e consolidados numa única chamada final (reduce).
     """
     avisar = progress_callback or (lambda _msg: None)
     avisos: list[str] = []
 
-    paginas_indisponiveis = [p.numero for p in paginas if p.fonte == "ocr_indisponivel"]
-    if paginas_indisponiveis:
-        avisos.append(
-            "OCR indisponível para as página(s) "
-            + ", ".join(str(p) for p in paginas_indisponiveis)
-            + " — o conteúdo dessas páginas não pôde ser lido e não está refletido na extração."
-        )
-
-    texto_completo = _texto_paginas(paginas)
-
-    if len(texto_completo) <= _LIMIAR_CARACTERES_TEXTO_UNICO:
-        avisar(f"Consultando IA (documento único, {len(paginas)} página(s))...")
-        texto_fonte = texto_completo
+    if len(texto) <= _LIMIAR_CARACTERES_TEXTO_UNICO:
+        avisar("Consultando IA (documento único)...")
+        texto_fonte = texto
     else:
-        blocos = _dividir_em_blocos(paginas)
+        blocos = _dividir_texto_em_blocos(texto)
         notas_blocos = []
         for indice, bloco in enumerate(blocos, start=1):
             avisar(f"Consultando IA (bloco {indice}/{len(blocos)})...")
-            prompt_mapa = _prompt_mapa_plano(
-                _texto_paginas(bloco), indice, len(blocos), bloco[0].numero, bloco[-1].numero
-            )
+            prompt_mapa = _prompt_mapa_plano_classe(bloco, indice, len(blocos))
             nota = _chamar_modelo_bruto(
                 [
                     {"role": "system", "content": _INSTRUCOES_PRECIFICACAO},
@@ -735,30 +721,27 @@ def extrair_termos_plano(
                 ],
                 temperatura=0.2,
             )
-            notas_blocos.append(
-                f"=== Notas do bloco {indice}/{len(blocos)} "
-                f"(páginas {bloco[0].numero}-{bloco[-1].numero}) ===\n{nota}"
-            )
+            notas_blocos.append(f"=== Notas do bloco {indice}/{len(blocos)} ===\n{nota}")
         avisos.append(
             f"Documento extenso: dividido em {len(blocos)} bloco(s) para análise pela IA e "
             "consolidado numa única extração."
         )
         texto_fonte = "\n\n".join(notas_blocos)
 
-    avisar("Extraindo termos do plano...")
-    prompt_final = _prompt_reducao_plano(arquivo_nome, texto_fonte)
+    avisar("Extraindo condições de pagamento por classe...")
+    prompt_final = _prompt_reducao_plano_classe(arquivo_nome, texto_fonte)
     try:
         dados = _chamar_modelo_json(prompt_final, _INSTRUCOES_PRECIFICACAO, temperatura=0.2)
     except json.JSONDecodeError:
         logger.error("Não foi possível interpretar a resposta da IA como JSON para '%s'.", arquivo_nome)
         mensagem_falha = (
-            "Não foi possível extrair os termos automaticamente (falha ao interpretar a resposta "
-            "da IA). Tente novamente ou preencha os parâmetros manualmente."
+            "Não foi possível extrair as condições automaticamente (falha ao interpretar a "
+            "resposta da IA). Tente novamente ou preencha as condições manualmente."
         )
         avisos.append(mensagem_falha)
-        return _construir_extracao_plano({"resumo_plano": mensagem_falha}, arquivo_nome, avisos)
+        return _construir_extracao_plano_classe({}, arquivo_nome, avisos)
 
-    return _construir_extracao_plano(dados, arquivo_nome, avisos)
+    return _construir_extracao_plano_classe(dados, arquivo_nome, avisos)
 
 
 # =============================================================================

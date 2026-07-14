@@ -21,6 +21,7 @@ import streamlit as st
 from config import GRAFICO_SUPERFICIE_ESCURA
 from src.calculadora.fluxo import novo_item
 from src.calculadora.models import Cenario, FluxoItem, TipoFluxoItem
+from src.utils import formatar_moeda
 
 
 def aplicar_tema_escuro_grafico(fig: go.Figure) -> go.Figure:
@@ -96,6 +97,24 @@ def editor_fluxo(fluxo: list[FluxoItem], key: str) -> list[FluxoItem]:
             novo_item(indice + 1, data_linha, str(linha["Descrição"]), tipo, Decimal(str(linha["Valor"])))
         )
     return novo_fluxo
+
+
+def campo_moeda(label: str, valor_padrao: float, key: str | None = None, **kwargs) -> float:
+    """`st.number_input` para um valor monetário, com uma legenda logo abaixo
+    mostrando o valor já formatado no padrão brasileiro (ex.: "R$ 2.000.000,00").
+
+    O widget nativo do Streamlit não aplica máscara de milhar/decimal em
+    tempo real dentro do próprio campo (não há suporte a separadores
+    localizados no parâmetro `format`) — a legenda abaixo do campo é o jeito
+    confiável de sempre mostrar o valor em Real por extenso, sem deixar de
+    usar `number_input` (com seus incrementos/validação nativos) para a
+    entrada em si.
+    """
+    kwargs.setdefault("min_value", 0.0)
+    kwargs.setdefault("step", 1000.0)
+    valor = st.number_input(label, value=valor_padrao, key=key, **kwargs)
+    st.caption(f"💰 {formatar_moeda(valor)}")
+    return valor
 
 
 def renderizar_kpis(pares: list[tuple[str, str]]) -> None:
