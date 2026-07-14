@@ -86,6 +86,46 @@ def gerar_fluxo_balao(
     return itens
 
 
+def gerar_fluxo_percentual(
+    valor_total: Decimal,
+    data_inicial: date,
+    prazo: int,
+    periodicidade: Periodicidade,
+    percentuais: list[Decimal],
+) -> list[FluxoItem]:
+    """Distribui `valor_total` em `prazo` parcelas segundo um padrão de pesos
+    que se repete ciclicamente — ex.: `percentuais=[Decimal("0.60"),
+    Decimal("0.40")]` gera parcelas alternadas de peso 60%/40%/60%/40%/...
+    até completar `prazo` parcelas ("60%/40% durante N períodos").
+
+    Os pesos não precisam somar 100%: cada parcela recebe uma fração de
+    `valor_total` proporcional ao seu peso dentro da soma de TODOS os pesos
+    efetivamente usados (o ciclo completo, repetido as vezes necessárias) —
+    assim o resultado é sempre bem definido, e a soma das parcelas fecha
+    exatamente em `valor_total` (a última parcela absorve o resíduo de
+    arredondamento, mesma convenção do resto do motor financeiro).
+    """
+    if prazo <= 0:
+        raise ValueError("O prazo deve ser maior que zero.")
+    if not percentuais or any(peso <= 0 for peso in percentuais):
+        raise ValueError("Os percentuais informados devem ser maiores que zero.")
+
+    pesos = [percentuais[i % len(percentuais)] for i in range(prazo)]
+    soma_pesos = sum(pesos, Decimal(0))
+
+    itens: list[FluxoItem] = []
+    acumulado = Decimal(0)
+    for i, peso in enumerate(pesos, start=1):
+        data_parcela = adicionar_periodos(data_inicial, i, periodicidade)
+        if i == prazo:
+            valor = valor_total - acumulado
+        else:
+            valor = arredondar(valor_total * peso / soma_pesos)
+        acumulado += valor
+        itens.append(novo_item(i, data_parcela, f"Parcela {i}", TipoFluxoItem.PARCELA, valor))
+    return itens
+
+
 def recalcular_fluxo(fluxo: list[FluxoItem], principal: Decimal, taxa_periodica: Decimal, data_base: date) -> list[FluxoItem]:
     """Recalcula juros, amortização e saldo devedor de cada item do fluxo, na
     ordem cronológica: juros primeiro (sobre o saldo e o tempo decorrido desde

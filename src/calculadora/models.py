@@ -18,6 +18,7 @@ class SistemaAmortizacao(str, Enum):
 
     PRICE = "Tabela Price"
     SAC = "Tabela SAC"
+    AMERICANO = "Sistema Americano"
 
 
 class RegimeJuros(str, Enum):
@@ -38,12 +39,20 @@ class Periodicidade(str, Enum):
     MENSAL = "Mensal"
     BIMESTRAL = "Bimestral"
     TRIMESTRAL = "Trimestral"
+    QUADRIMESTRAL = "Quadrimestral"
     SEMESTRAL = "Semestral"
     ANUAL = "Anual"
 
     @property
     def meses(self) -> int:
-        return {"Mensal": 1, "Bimestral": 2, "Trimestral": 3, "Semestral": 6, "Anual": 12}[self.value]
+        return {
+            "Mensal": 1,
+            "Bimestral": 2,
+            "Trimestral": 3,
+            "Quadrimestral": 4,
+            "Semestral": 6,
+            "Anual": 12,
+        }[self.value]
 
 
 class TipoFluxoItem(str, Enum):

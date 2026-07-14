@@ -1,6 +1,7 @@
-"""Motor de cálculo de amortização — Tabela Price e Tabela SAC, com conversão
-de taxa entre periodicidades e carência (capitalizada ou com pagamento de
-juros). Funções puras — sem Streamlit, sem estado global — toda a matemática
+"""Motor de cálculo de amortização — Tabela Price, Tabela SAC e Sistema
+Americano —, com conversão de taxa entre periodicidades e carência
+(capitalizada ou com pagamento de juros). Funções puras — sem Streamlit, sem
+estado global — toda a matemática
 usa `Decimal` (nunca `float`) para evitar erro de arredondamento em valores
 monetários, incluindo a exponenciação fracionária da conversão de taxa (via
 `Decimal.ln()`/`Decimal.exp()`, não uma ponte por `float`).
@@ -66,7 +67,7 @@ def converter_taxa(taxa: Decimal, de: Periodicidade, para: Periodicidade, regime
 
 def gerar_cronograma(parametros: ParametrosFinanciamento) -> ResultadoFinanciamento:
     """Gera o cronograma completo de amortização: carência (se houver) seguida
-    da tabela Price ou SAC sobre o saldo remanescente.
+    da tabela Price, SAC ou Sistema Americano sobre o saldo remanescente.
 
     A última parcela sempre absorve o resíduo de arredondamento acumulado
     (padrão de mercado), garantindo que o saldo final feche exatamente em
@@ -145,7 +146,7 @@ def gerar_cronograma(parametros: ParametrosFinanciamento) -> ResultadoFinanciame
                 )
             )
             saldo = saldo_final
-    else:  # SAC
+    elif parametros.sistema == SistemaAmortizacao.SAC:
         amortizacao_fixa = arredondar(saldo / prazo)
         for i in range(1, prazo + 1):
             indice_periodo += 1
@@ -153,6 +154,30 @@ def gerar_cronograma(parametros: ParametrosFinanciamento) -> ResultadoFinanciame
             juros = arredondar(saldo * taxa_periodica)
             amortizacao = amortizacao_fixa if i < prazo else saldo
             valor_parcela = amortizacao + juros
+            saldo_final = saldo - amortizacao
+            parcelas.append(
+                ParcelaAmortizacao(
+                    numero=indice_periodo,
+                    data=data,
+                    saldo_inicial=saldo,
+                    juros=juros,
+                    amortizacao=amortizacao,
+                    valor_parcela=valor_parcela,
+                    saldo_final=saldo_final,
+                )
+            )
+            saldo = saldo_final
+    else:  # Sistema Americano: só juros a cada período, principal integral na última parcela
+        for i in range(1, prazo + 1):
+            indice_periodo += 1
+            data = adicionar_periodos(parametros.data_inicial, indice_periodo, parametros.periodicidade_parcela)
+            juros = arredondar(saldo * taxa_periodica)
+            if i == prazo:
+                amortizacao = saldo
+                valor_parcela = amortizacao + juros
+            else:
+                amortizacao = Decimal(0)
+                valor_parcela = juros
             saldo_final = saldo - amortizacao
             parcelas.append(
                 ParcelaAmortizacao(

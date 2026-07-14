@@ -1,5 +1,6 @@
 """Indicadores de retorno para a Calculadora de VPL — VPL (XNPV), TIR (XIRR),
-Payback, ROI, rentabilidade, valor econômico, margem e spread.
+Payback, Payback Descontado, Duration (Macaulay), ROI, rentabilidade, valor
+econômico, margem e spread.
 
 Usa a metodologia XNPV/XIRR (fluxos de caixa com datas irregulares, base de
 365 dias/ano) — a mesma convenção usada por planilhas financeiras como
@@ -95,6 +96,19 @@ def _xirr_bisseccao(
     return (baixo + alto) / 2
 
 
+def preco_maximo_para_taxa_alvo(fluxo: list[tuple[date, Decimal]], taxa_alvo_anual: Decimal, data_base: date) -> Decimal:
+    """Preço máximo de aquisição para atingir exatamente `taxa_alvo_anual` de
+    TIR na operação (usado como "Preço Máximo Recomendado" na Precificação
+    Inteligente de Créditos).
+
+    Por definição de TIR (a taxa que zera o VPL do fluxo completo
+    ``-preço + XNPV(fluxo, taxa)``), o preço de equilíbrio para uma taxa-alvo
+    é o próprio XNPV do fluxo de recebimentos descontado a essa taxa — pagar
+    mais do que isso reduz o retorno da operação abaixo do alvo.
+    """
+    return xnpv(fluxo, taxa_alvo_anual, data_base)
+
+
 def calcular_payback(fluxo: list[tuple[date, Decimal]], data_base: date) -> tuple[date | None, float | None]:
     """Payback simples (sem desconto): primeira data em que o saldo acumulado
     do fluxo (a partir de `data_base`) deixa de ser negativo, e o número
@@ -108,6 +122,62 @@ def calcular_payback(fluxo: list[tuple[date, Decimal]], data_base: date) -> tupl
             dias = (data_item - data_base).days
             return data_item, float(dias) / 30.0
     return None, None
+
+
+def calcular_payback_descontado(
+    fluxo: list[tuple[date, Decimal]], taxa_anual: Decimal, data_base: date
+) -> tuple[date | None, float | None]:
+    """Payback descontado: primeira data em que a soma dos valores do fluxo já
+    trazidos a valor presente (a partir de `data_base`, à `taxa_anual`) deixa
+    de ser negativa. Mais conservador que `calcular_payback` (nominal) por
+    incorporar o custo de oportunidade do capital. Retorna (None, None) se o
+    fluxo nunca zera o investimento inicial em valor presente.
+    """
+    acumulado = Decimal(0)
+    base = Decimal(1) + taxa_anual
+    ln_base = base.ln() if base > 0 else None
+    for data_item, valor in sorted(fluxo, key=lambda item: item[0]):
+        if ln_base is not None:
+            dias = Decimal((data_item - data_base).days)
+            fator = (ln_base * (dias / _DIAS_ANO)).exp()
+            valor_descontado = valor / fator
+        else:
+            valor_descontado = valor
+        acumulado += valor_descontado
+        if acumulado >= 0:
+            dias_total = (data_item - data_base).days
+            return data_item, float(dias_total) / 30.0
+    return None, None
+
+
+def calcular_duration(fluxo: list[tuple[date, Decimal]], taxa_anual: Decimal, data_base: date) -> Decimal | None:
+    """Duration de Macaulay: prazo médio (em anos) dos recebimentos de um
+    fluxo, ponderado pelo valor presente de cada parcela — mede o "prazo
+    médio financeiro" do fluxo e a sensibilidade do seu valor presente a
+    variações na taxa de desconto. Considera apenas os valores POSITIVOS do
+    fluxo (recebimentos); retorna `None` se não houver nenhum recebimento.
+
+    Fórmula: ``Duration = Σ(tᵢ · VPᵢ) / Σ(VPᵢ)``, com ``tᵢ`` em anos
+    (dias corridos / 365) e ``VPᵢ`` o valor presente de cada recebimento.
+    """
+    if taxa_anual <= -1:
+        raise ValueError("A taxa de desconto não pode ser menor ou igual a -100%.")
+    base = Decimal(1) + taxa_anual
+    ln_base = base.ln()
+    soma_vp = Decimal(0)
+    soma_vp_tempo = Decimal(0)
+    for data_item, valor in fluxo:
+        if valor <= 0:
+            continue
+        dias = Decimal((data_item - data_base).days)
+        tempo_anos = dias / _DIAS_ANO
+        fator = (ln_base * tempo_anos).exp()
+        valor_presente = valor / fator
+        soma_vp += valor_presente
+        soma_vp_tempo += valor_presente * tempo_anos
+    if soma_vp == 0:
+        return None
+    return soma_vp_tempo / soma_vp
 
 
 def calcular_resultado_vpl(parametros: ParametrosVPL) -> ResultadoVPL:
