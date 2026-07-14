@@ -21,12 +21,19 @@ from config import (
 )
 from interface.icones import icone
 
-# (chave interna da página, rótulo exibido no menu, chave do ícone)
+# (chave interna da página, rótulo exibido no menu, chave do ícone) — a chave
+# interna de "calculadora" é mantida por compatibilidade de rotas/session_state
+# mesmo com o rótulo agora refletindo o nome do módulo na Home ("Simulação de
+# Financiamento"); a antiga aba de VPL dessa página migra para "precificacao"
+# numa fase futura, sem remover nada enquanto isso não acontecer.
 PAGINAS = [
     ("home", "Home", "home"),
     ("credores", "Credores", "credores"),
     ("peticao_inicial", "Petição Inicial", "peticao_inicial"),
-    ("calculadora", "Calculadora", "calculadora"),
+    ("precificacao", "Precificação Inteligente", "precificacao"),
+    ("calculadora", "Simulação de Financiamento", "calculadora"),
+    ("analise_documentos", "Análise de Documentos", "analise_documentos"),
+    ("proposta_credor", "Proposta ao Credor", "proposta_credor"),
     ("configuracoes", "Configurações", "configuracoes"),
 ]
 

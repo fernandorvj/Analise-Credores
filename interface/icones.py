@@ -29,6 +29,9 @@ NOMES = {
     "adicionar": "add",
     "excluir": "delete",
     "atualizar": "refresh",
+    "precificacao": "psychology",
+    "analise_documentos": "find_in_page",
+    "proposta_credor": "mail",
 }
 
 

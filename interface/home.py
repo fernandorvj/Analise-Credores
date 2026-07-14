@@ -2,7 +2,8 @@
 
 Não contém lógica de negócio: cada card apenas leva a um módulo já
 implementado em outro lugar (`interface/dashboard.py`, `interface/
-peticao_inicial.py`, `interface/calculadora.py`).
+peticao_inicial.py`, `interface/calculadora/`, ou uma página "em construção"
+para os módulos ainda não implementados — ver `app.py`).
 """
 
 from __future__ import annotations
@@ -49,17 +50,74 @@ _CARDS = [
         "key": "home_card_peticao",
     },
     {
-        "chave_icone": "calculadora",
-        "titulo": "Calculadora",
-        "descricao": "Ferramentas financeiras para análise de aquisição de créditos.",
+        "chave_icone": "precificacao",
+        "titulo": "Precificação Inteligente de Créditos",
+        "descricao": (
+            "Interprete automaticamente um Plano de Recuperação Judicial e obtenha o VPL, a TIR "
+            "e o preço máximo recomendado para aquisição do crédito.<br><br>A IA extrai deságio, "
+            "carência, juros, correção e cronograma do plano — todo o cálculo financeiro é feito "
+            "em Python, de forma auditável."
+        ),
         "itens": [
-            "VPL, TIR e Payback",
-            "Fluxo de caixa e simulação de compra",
-            "Simulação de financiamento e ROI",
+            "Leitura automática do Plano de RJ (PDF)",
+            "Construção automática do fluxo de caixa",
+            "VPL, TIR, ROI, Payback e Duration",
+            "Taxa SELIC integrada com a API do Banco Central",
+            "Preço máximo recomendado para aquisição",
+        ],
+        "pagina_destino": "precificacao",
+        "key": "home_card_precificacao",
+    },
+    {
+        "chave_icone": "calculadora",
+        "titulo": "Simulação de Financiamento",
+        "descricao": (
+            "Estruture propostas de aquisição de créditos com cronogramas de amortização, fluxo "
+            "de caixa livre e comparação de cenários."
+        ),
+        "itens": [
+            "Tabela Price e SAC, juros simples e compostos",
+            "Simulação Balão com editor de fluxo livre",
             "Comparação de cenários",
+            "Exportação em Word e Excel",
         ],
         "pagina_destino": "calculadora",
         "key": "home_card_calculadora",
+    },
+    {
+        "chave_icone": "analise_documentos",
+        "titulo": "Análise de Documentos",
+        "descricao": (
+            "Envie qualquer documento do processo — PDF, Word, Excel, imagem ou link — e obtenha "
+            "um resumo executivo com riscos, garantias, cláusulas relevantes e impacto na "
+            "aquisição de créditos.<br><br>Converse com a IA para tirar dúvidas específicas sobre "
+            "o conteúdo do documento."
+        ),
+        "itens": [
+            "Aceita PDF, Word, Excel, TXT, imagem e links",
+            "Resumo executivo e principais riscos",
+            "Cláusulas, garantias e execuções identificadas",
+            "Perguntas e respostas sobre o documento",
+        ],
+        "pagina_destino": "analise_documentos",
+        "key": "home_card_analise_documentos",
+    },
+    {
+        "chave_icone": "proposta_credor",
+        "titulo": "Proposta ao Credor",
+        "descricao": (
+            "Gere automaticamente um e-mail institucional formal de proposta de aquisição de "
+            "crédito, pronto para revisão e envio.<br><br>A IA constrói a argumentação técnica e "
+            "financeira a partir dos dados informados — você revisa e exporta."
+        ),
+        "itens": [
+            "Texto formal e institucional, pronto para revisão",
+            "Contextualização, justificativa e condições da proposta",
+            "Baseado no valor do crédito, VPL e classe",
+            "Exportação em Word",
+        ],
+        "pagina_destino": "proposta_credor",
+        "key": "home_card_proposta_credor",
     },
 ]
 
@@ -90,12 +148,17 @@ def _renderizar_card(card: dict) -> None:
 
 
 def renderizar_home() -> None:
-    """Renderiza a tela inicial: mensagem de boas-vindas + os 3 cards de módulos."""
+    """Renderiza a tela inicial: mensagem de boas-vindas + os cards de módulos,
+    em linhas de 3 colunas (funciona para qualquer quantidade de cards)."""
     st.markdown("### Bem-vindo à Central AMF3 Capital")
     st.caption("Selecione um módulo abaixo para começar.")
     st.write("")
 
-    colunas = st.columns(3)
-    for coluna, card in zip(colunas, _CARDS):
-        with coluna:
-            _renderizar_card(card)
+    cards_por_linha = 3
+    for inicio in range(0, len(_CARDS), cards_por_linha):
+        colunas = st.columns(cards_por_linha)
+        linha = _CARDS[inicio : inicio + cards_por_linha]
+        for coluna, card in zip(colunas, linha):
+            with coluna:
+                _renderizar_card(card)
+        st.write("")
