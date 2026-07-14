@@ -400,38 +400,35 @@ def _grafico_linha_tempo(resultado: ResultadoPrecificacaoClasse) -> go.Figure:
 
 
 def _grafico_evolucao_saldo(resultado: ResultadoPrecificacaoClasse) -> go.Figure:
+    fluxo_ordenado = sorted(resultado.fluxo, key=lambda item: item.numero)
     fig = go.Figure()
-    saldo = float(resultado.vpl)
-    saldos = []
-    for p in sorted(resultado.fluxo, key=lambda item: item.data):
-        saldo -= float(p.valor_descontado)
-        saldos.append(saldo)
     fig.add_trace(
         go.Scatter(
-            x=[p.data for p in sorted(resultado.fluxo, key=lambda item: item.data)], y=saldos,
-            mode="lines", fill="tozeroy", name="Saldo do VPL restante", line=dict(color=CORES["grafico_indigo"], width=2),
+            x=[p.data for p in fluxo_ordenado], y=[float(p.saldo_final) for p in fluxo_ordenado],
+            mode="lines+markers", fill="tozeroy", name="Saldo Devedor", line=dict(color=CORES["grafico_indigo"], width=2),
         )
     )
-    fig.update_layout(title="Evolução do Saldo (VPL restante a receber)", xaxis_title="Data", yaxis_title="Saldo (R$)")
+    fig.update_layout(title="Evolução do Saldo Devedor", xaxis_title="Data", yaxis_title="Saldo (R$)")
     return aplicar_tema_escuro_grafico(fig)
 
 
 def _renderizar_resultado(resultado: ResultadoPrecificacaoClasse) -> None:
     if not resultado.metodologia_validada:
         st.warning(
-            "⚠️ Metodologia de cálculo ainda não validada contra a planilha oficial de VPL da AMF3 "
-            "Capital — os números abaixo usam a convenção XNPV (dias corridos/365, padrão Excel/"
-            "Google Sheets). Trate como uma estimativa até a validação ser concluída."
+            "⚠️ Metodologia de cálculo (cronograma unificado, casamento de período e descapitalização "
+            "linha por linha) ainda pendente de validação final contra a planilha oficial de VPL da "
+            "AMF3 Capital. Trate os números abaixo como uma estimativa até a confirmação."
         )
 
     st.markdown("#### Resumo Financeiro")
     renderizar_kpis(
         [
-            ("Valor Nominal do Crédito", formatar_moeda(float(resultado.valor_nominal_credito))),
+            ("Valor Nominal do Crédito (C0)", formatar_moeda(float(resultado.valor_nominal_credito))),
             ("Classe", resultado.classe),
             (
                 "Taxa de Desconto",
-                f"{formatar_percentual(float(resultado.taxa_desconto_anual))} a.a.",
+                f"{formatar_percentual(float(resultado.taxa_desconto_anual))} a.a. "
+                f"({formatar_percentual(float(resultado.taxa_desconto_periodo))}/período)",
             ),
             (
                 "Data da Taxa",
@@ -441,17 +438,37 @@ def _renderizar_resultado(resultado: ResultadoPrecificacaoClasse) -> None:
     )
     st.caption(f"Origem da taxa de desconto: {resultado.origem_taxa_desconto}")
 
-    st.markdown("#### Valor Presente Líquido")
-    st.metric("VPL", formatar_moeda(float(resultado.vpl)))
+    st.markdown("#### Resultado")
+    renderizar_kpis(
+        [
+            ("Fluxo Nominal Total", formatar_moeda(float(resultado.fluxo_nominal_total))),
+            ("Valor Presente do Fluxo (VP Total)", formatar_moeda(float(resultado.vp_total))),
+            ("VPL Real Comercial", formatar_moeda(float(resultado.vpl_comercial))),
+            ("% Recuperação Efetiva", formatar_percentual(float(resultado.percentual_recuperacao_efetiva) / 100)),
+        ]
+    )
+    st.caption(
+        "VPL Real Comercial = Valor Presente do Fluxo − Crédito Original. Como se trata de uma Recuperação "
+        "Judicial com deságio e prazo longo, um VPL comercial significativamente negativo é esperado — ele "
+        "reflete a perda real de poder de compra do credor, não um erro de cálculo."
+    )
 
-    st.markdown("#### Fluxo de Caixa")
+    st.markdown("#### Cronograma Unificado (Carência + Parcelas)")
     df = pd.DataFrame(
         [
             {
-                "Nº": p.numero, "Data": p.data.strftime("%d/%m/%Y"), "Descrição": p.descricao,
-                "Valor Nominal": formatar_moeda(float(p.valor_nominal)), "Valor Presente": formatar_moeda(float(p.valor_descontado)),
+                "Nº": p.numero,
+                "Data": p.data.strftime("%d/%m/%Y"),
+                "Descrição": p.descricao,
+                "Carência?": "Sim" if p.carencia else "Não",
+                "Saldo Inicial": formatar_moeda(float(p.saldo_inicial)),
+                "Juros do Período": formatar_moeda(float(p.juros_periodo)),
+                "Amortização": formatar_moeda(float(p.amortizacao)),
+                "Valor Pago ao Credor": formatar_moeda(float(p.valor_nominal)),
+                "Saldo Final": formatar_moeda(float(p.saldo_final)),
+                "Valor Presente (VP_t)": formatar_moeda(float(p.valor_descontado)),
             }
-            for p in sorted(resultado.fluxo, key=lambda item: item.data)
+            for p in sorted(resultado.fluxo, key=lambda item: item.numero)
         ]
     )
     st.dataframe(df, width="stretch", hide_index=True)

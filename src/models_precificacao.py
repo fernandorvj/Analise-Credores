@@ -61,32 +61,47 @@ class ExtracaoPlanoPorClasse:
 
 @dataclass
 class ParcelaPrecificacao:
-    """Uma parcela do fluxo de pagamento de uma classe — valor nominal (já
-    com correção monetária, se aplicável) e valor descontado a valor
-    presente pela taxa de desconto (SELIC ou manual)."""
+    """Uma linha do cronograma unificado (carência ou parcela de pagamento).
 
-    numero: int
+    Todas as linhas do cronograma são mantidas aqui — inclusive as de
+    carência — para auditoria "linha por linha": numa linha de carência,
+    `amortizacao` e `valor_nominal` são zero (nada é pago ao credor; os
+    juros do período capitalizam ao saldo, refletido em `saldo_final`).
+    """
+
+    numero: int  # posição cronológica (1..N) — usada como `t` na descapitalização
     data: date
     descricao: str
-    valor_nominal: Decimal
-    valor_descontado: Decimal
+    carencia: bool
+    saldo_inicial: Decimal
+    juros_periodo: Decimal
+    amortizacao: Decimal
+    valor_nominal: Decimal  # fluxo total efetivamente recebido pelo credor nesta linha (0 se carência)
+    saldo_final: Decimal
+    valor_descontado: Decimal  # VP_t = valor_nominal / (1 + taxa_desconto_periodo) ** numero
 
 
 @dataclass
 class ResultadoPrecificacaoClasse:
     """Saída completa do cálculo de VPL para uma classe — 100% em Python,
-    determinístico e auditável (nunca calculado pela IA).
+    determinístico e auditável (nunca calculado pela IA). Segue a
+    metodologia de cronograma unificado + casamento de período +
+    descapitalização linha por linha fornecida pela AMF3 Capital.
     """
 
     classe: str
-    valor_nominal_credito: Decimal
+    valor_nominal_credito: Decimal  # Crédito Original (C0)
     valor_atualizado_credito: Decimal | None
     condicoes: CondicoesPagamentoClasse
     taxa_desconto_anual: Decimal
+    taxa_desconto_periodo: Decimal  # já convertida para a periodicidade das parcelas ("molde")
     origem_taxa_desconto: str
     data_taxa_desconto: date | None
     fluxo: list[ParcelaPrecificacao] = field(default_factory=list)
-    vpl: Decimal = Decimal(0)
+    fluxo_nominal_total: Decimal = Decimal(0)  # soma de amortização + juros pagos em todas as parcelas
+    vp_total: Decimal = Decimal(0)  # Valor Presente do Fluxo = soma de todos os VP_t
+    vpl_comercial: Decimal = Decimal(0)  # VPL Real Comercial = VP Total − Crédito Original
+    percentual_recuperacao_efetiva: Decimal = Decimal(0)  # VP Total / Crédito Original × 100
     memoria_calculo: list[str] = field(default_factory=list)
     # False até a metodologia ser comparada e confirmada equivalente à
     # planilha oficial da AMF3 — ver ETAPA de validação do módulo.
