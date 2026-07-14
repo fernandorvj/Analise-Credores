@@ -25,7 +25,14 @@ from interface.calculadora.componentes import (
 from interface.icones import icone
 from src.calculadora.amortizacao import converter_taxa
 from src.calculadora.exportar_excel import exportar_excel_fluxo
-from src.calculadora.fluxo import gerar_fluxo_balao, recalcular_e_quitar_no_ultimo_evento, recalcular_fluxo, saldo_final
+from src.calculadora.fluxo import (
+    gerar_fluxo_balao,
+    gerar_fluxo_percentual,
+    novo_item,
+    recalcular_e_quitar_no_ultimo_evento,
+    recalcular_fluxo,
+    saldo_final,
+)
 from src.calculadora.models import Periodicidade, RegimeJuros, TipoFluxoItem
 from src.calculadora.vpl_tir import xirr, xnpv
 from src.utils import formatar_moeda, formatar_percentual
@@ -73,6 +80,80 @@ def _formulario_geracao() -> None:
     st.session_state["calc_balao_taxa"] = taxa_dec
     st.session_state["calc_balao_data_base"] = data_inicial
     st.session_state.pop("calc_balao_editor", None)  # limpa estado anterior do data_editor
+
+
+def _formulario_percentual() -> None:
+    """Modo alternativo de geração do fluxo: em vez de balões periódicos, as
+    parcelas seguem um padrão de percentuais que se repete ciclicamente (ex.:
+    "60,40" gera parcelas alternadas de peso 60%/40%/60%/40%/... "60%/40%
+    durante N períodos"). Usa `fluxo.gerar_fluxo_percentual` (Fase 2) como
+    "semente" inicial e o mesmo `recalcular_e_quitar_no_ultimo_evento` já
+    usado pelo Balão automático — nenhuma lógica nova de recálculo/quitação.
+    """
+    with st.form("form_balao_percentual"):
+        col1, col2 = st.columns(2)
+        with col1:
+            principal = st.number_input(
+                "Valor Financiado (R$)", min_value=0.0, value=100000.0, step=1000.0, key="balao_pct_principal"
+            )
+            valor_entrada = st.number_input(
+                "Valor de Entrada (R$)", min_value=0.0, value=0.0, step=1000.0, key="balao_pct_entrada"
+            )
+            data_inicial = st.date_input("Data Inicial", value=date.today(), key="balao_pct_data_inicial")
+        with col2:
+            taxa_percentual = st.number_input(
+                "Taxa de Juros por Período (%)", min_value=0.0, value=2.0, step=0.1, key="balao_pct_taxa"
+            )
+            prazo = st.number_input("Prazo Total (nº de parcelas)", min_value=1, value=12, step=1, key="balao_pct_prazo")
+            periodicidade = st.selectbox(
+                "Periodicidade", list(Periodicidade), format_func=lambda p: p.value, index=0, key="balao_pct_periodicidade"
+            )
+
+        percentuais_texto = st.text_input(
+            "Padrão de percentuais (separados por vírgula, repete ciclicamente)",
+            value="60,40",
+            help='Ex.: "60,40" gera parcelas alternadas de peso 60%/40%/60%/40%... até completar o '
+            'prazo — use ponto para casas decimais dentro de cada percentual (ex.: "33.3,33.3,33.4").',
+            key="balao_pct_percentuais",
+        )
+
+        gerar = st.form_submit_button("Gerar Fluxo por Percentual", type="primary", icon=icone("fluxo"))
+
+    if not gerar:
+        return
+
+    try:
+        percentuais = [Decimal(p.strip()) / Decimal(100) for p in percentuais_texto.split(",") if p.strip()]
+        if not percentuais:
+            raise ValueError("Informe ao menos um percentual.")
+
+        principal_dec = Decimal(str(principal))
+        entrada_dec = Decimal(str(valor_entrada))
+        taxa_dec = Decimal(str(taxa_percentual)) / Decimal(100)
+        saldo_a_distribuir = principal_dec - entrada_dec
+
+        parcelas = gerar_fluxo_percentual(saldo_a_distribuir, data_inicial, int(prazo), periodicidade, percentuais)
+
+        fluxo: list = []
+        contador = 0
+        if entrada_dec > 0:
+            contador += 1
+            fluxo.append(novo_item(contador, data_inicial, "Entrada", TipoFluxoItem.ENTRADA, entrada_dec, editavel=False))
+        for parcela in parcelas:
+            contador += 1
+            parcela.id = contador
+            fluxo.append(parcela)
+
+        fluxo = recalcular_e_quitar_no_ultimo_evento(fluxo, principal_dec, taxa_dec, data_inicial)
+    except (InvalidOperation, ValueError) as exc:
+        st.error(f"Não foi possível gerar o fluxo: {exc}")
+        return
+
+    st.session_state["calc_balao_fluxo"] = fluxo
+    st.session_state["calc_balao_principal"] = principal_dec
+    st.session_state["calc_balao_taxa"] = taxa_dec
+    st.session_state["calc_balao_data_base"] = data_inicial
+    st.session_state.pop("calc_balao_editor", None)
 
 
 def _grafico_fluxo(fluxo: list) -> go.Figure:
@@ -194,16 +275,28 @@ def _renderizar_editor() -> None:
 
     with col_cenario:
         st.markdown("**Salvar para comparação**")
-        st.caption("A Comparação de Cenários utiliza os cenários do Simulador de Financiamento e da Calculadora de VPL.")
+        st.caption(
+            "A Comparação de Cenários utiliza os cenários do Simulador de Financiamento e da "
+            "Precificação Inteligente de Créditos."
+        )
 
 
 def renderizar_balao() -> None:
-    _formulario_geracao()
+    modo = st.radio(
+        "Modo de geração do fluxo inicial",
+        ["Balão automático (entrada + parcelas + balões)", "Percentual customizado (ex.: 60%/40%)"],
+        key="balao_modo_geracao",
+        horizontal=True,
+    )
+    if modo.startswith("Balão"):
+        _formulario_geracao()
+    else:
+        _formulario_percentual()
 
     if "calc_balao_fluxo" not in st.session_state:
         st.info(
-            'Preencha os parâmetros acima e clique em "Gerar Fluxo Automaticamente" para montar o fluxo '
-            "inicial (entrada + parcelas + balões) — em seguida edite livremente qualquer evento."
+            'Preencha os parâmetros acima e clique em "Gerar Fluxo Automaticamente" (ou "Gerar Fluxo '
+            'por Percentual") para montar o fluxo inicial — em seguida edite livremente qualquer evento.'
         )
         return
 

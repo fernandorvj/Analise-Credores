@@ -1,9 +1,12 @@
-"""Aba "Simulador de Financiamento" — Tabela Price ou SAC, juros simples ou
-compostos, com carência, gera cronograma completo, gráficos e exportação.
+"""Aba "Simulador de Financiamento" — Tabela Price, SAC ou Sistema Americano,
+juros simples ou compostos, com carência, gera cronograma completo, gráficos
+e exportação. Inclui um assistente de IA que converte uma descrição em texto
+livre em parâmetros sugeridos — a IA nunca calcula, só interpreta o texto.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -12,9 +15,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from config import CORES, EXPORTADOS_DIR
+from config import CORES, EXPORTADOS_DIR, possui_chave_openai
 from interface.calculadora.componentes import container_grafico, aplicar_tema_escuro_grafico, renderizar_kpis, salvar_cenario
 from interface.icones import icone
+from src import ia
 from src.calculadora.amortizacao import gerar_cronograma
 from src.calculadora.exportar_excel import exportar_excel_financiamento
 from src.calculadora.exportar_word import exportar_word_financiamento
@@ -28,24 +32,115 @@ from src.calculadora.models import (
 from src.utils import formatar_moeda, formatar_percentual
 
 
+def _numero_ou_padrao(valor: object, padrao: float) -> float:
+    """Converte um valor vindo da sugestão da IA para float, preservando 0 —
+    `valor or padrao` erraria aqui, pois 0 é um valor legítimo e "falsy"."""
+    if valor is None:
+        return padrao
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return padrao
+
+
+def _periodicidade_por_valor(valor: object) -> Periodicidade | None:
+    if not isinstance(valor, str):
+        return None
+    for periodicidade in Periodicidade:
+        if periodicidade.value.lower() == valor.strip().lower():
+            return periodicidade
+    return None
+
+
+def _sistema_por_valor(valor: object) -> SistemaAmortizacao | None:
+    if not isinstance(valor, str):
+        return None
+    for sistema_item in SistemaAmortizacao:
+        if sistema_item.value.lower() == valor.strip().lower():
+            return sistema_item
+    return None
+
+
+def _assistente_ia_texto_livre() -> None:
+    """Assistente de IA: converte uma descrição em texto livre do
+    financiamento em parâmetros que pré-preenchem o formulário abaixo — a IA
+    apenas interpreta o texto, nunca realiza nenhum cálculo financeiro.
+    """
+    with st.expander("🧠 Assistente IA — descreva o financiamento em texto livre"):
+        st.caption(
+            'Ex.: "Financiamento de R$ 200.000, entrada de R$ 20.000, taxa de 1,8% ao mês, 36 '
+            'parcelas mensais pela Tabela Price, com 3 meses de carência." Os valores identificados '
+            "pré-preenchem o formulário abaixo — revise-os antes de calcular."
+        )
+        texto = st.text_area("Descrição livre", key="fin_ia_texto", height=100, label_visibility="collapsed")
+        if st.button("Interpretar com IA", icon=icone("financiamento"), key="fin_ia_btn"):
+            if not possui_chave_openai():
+                st.warning("Nenhuma chave de API da OpenAI configurada. Defina OPENAI_API_KEY para habilitar o assistente.")
+            elif not texto.strip():
+                st.warning("Descreva o financiamento no campo acima antes de interpretar.")
+            else:
+                try:
+                    sugestao = ia.extrair_estrutura_financiamento(texto)
+                    st.session_state["fin_ia_sugestao"] = sugestao
+                    st.rerun()
+                except RuntimeError as exc:
+                    st.error(str(exc))
+                except json.JSONDecodeError:
+                    st.error("Não foi possível interpretar a resposta da IA. Tente reformular o texto.")
+
+        if st.session_state.get("fin_ia_sugestao"):
+            st.success("Sugestão aplicada ao formulário abaixo — revise os valores antes de calcular.")
+            observacoes = st.session_state["fin_ia_sugestao"].get("observacoes")
+            if observacoes:
+                st.caption(observacoes)
+
+
 def _formulario() -> ParametrosFinanciamento | None:
+    sugestao = st.session_state.get("fin_ia_sugestao") or {}
+    periodicidades = list(Periodicidade)
+    sistemas = list(SistemaAmortizacao)
+    periodicidade_taxa_sugerida = _periodicidade_por_valor(sugestao.get("periodicidade_taxa"))
+    periodicidade_parcela_sugerida = _periodicidade_por_valor(sugestao.get("periodicidade_parcela"))
+    sistema_sugerido = _sistema_por_valor(sugestao.get("sistema"))
+
     with st.form("form_financiamento"):
         col1, col2 = st.columns(2)
         with col1:
-            valor_financiado = st.number_input("Valor Financiado (R$)", min_value=0.0, value=100000.0, step=1000.0)
-            valor_entrada = st.number_input("Valor de Entrada (R$)", min_value=0.0, value=0.0, step=1000.0)
-            taxa_percentual = st.number_input("Taxa de Juros (%)", min_value=0.0, value=2.0, step=0.1)
+            valor_financiado = st.number_input(
+                "Valor Financiado (R$)", min_value=0.0, value=_numero_ou_padrao(sugestao.get("valor_financiado"), 100000.0), step=1000.0
+            )
+            valor_entrada = st.number_input(
+                "Valor de Entrada (R$)", min_value=0.0, value=_numero_ou_padrao(sugestao.get("valor_entrada"), 0.0), step=1000.0
+            )
+            taxa_percentual = st.number_input(
+                "Taxa de Juros (%)", min_value=0.0, value=_numero_ou_padrao(sugestao.get("taxa_percentual"), 2.0), step=0.1
+            )
             periodicidade_taxa = st.selectbox(
-                "Periodicidade da Taxa", list(Periodicidade), format_func=lambda p: p.value, index=0
+                "Periodicidade da Taxa",
+                periodicidades,
+                index=periodicidades.index(periodicidade_taxa_sugerida) if periodicidade_taxa_sugerida else 0,
+                format_func=lambda p: p.value,
             )
             data_inicial = st.date_input("Data Inicial", value=date.today())
         with col2:
-            prazo = st.number_input("Prazo (nº de parcelas)", min_value=1, value=12, step=1)
-            carencia = st.number_input("Carência (nº de parcelas)", min_value=0, value=0, step=1)
-            periodicidade_parcela = st.selectbox(
-                "Periodicidade das Parcelas", list(Periodicidade), format_func=lambda p: p.value, index=0
+            prazo = st.number_input(
+                "Prazo (nº de parcelas)", min_value=1, value=int(_numero_ou_padrao(sugestao.get("prazo"), 12.0)), step=1
             )
-            sistema = st.selectbox("Sistema de Amortização", list(SistemaAmortizacao), format_func=lambda s: s.value)
+            carencia = st.number_input(
+                "Carência (nº de parcelas)", min_value=0, value=int(_numero_ou_padrao(sugestao.get("carencia"), 0.0)), step=1
+            )
+            periodicidade_parcela = st.selectbox(
+                "Periodicidade das Parcelas",
+                periodicidades,
+                index=periodicidades.index(periodicidade_parcela_sugerida) if periodicidade_parcela_sugerida else 0,
+                format_func=lambda p: p.value,
+            )
+            sistema = st.selectbox(
+                "Sistema de Amortização",
+                sistemas,
+                index=sistemas.index(sistema_sugerido) if sistema_sugerido else 0,
+                format_func=lambda s: s.value,
+            )
             regime_padrao = st.session_state.get("calc_config_regime_padrao", RegimeJuros.COMPOSTO)
             regime = st.selectbox(
                 "Regime de Juros",
@@ -183,6 +278,7 @@ def _renderizar_resultado(resultado: ResultadoFinanciamento) -> None:
 
 
 def renderizar_financiamento() -> None:
+    _assistente_ia_texto_livre()
     parametros = _formulario()
     if parametros is not None:
         try:

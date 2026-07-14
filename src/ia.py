@@ -29,6 +29,8 @@ from src.models_peticao_inicial import (
     RelatorioPeticaoInicial,
     TrechoFiscal,
 )
+from src.models_analise_documentos import AnaliseDocumento, ItemComContexto
+from src.models_precificacao import ExtracaoPlano, TermosClasse, TermosGerais, TrechoPlano
 
 logger = configurar_logging()
 
@@ -550,3 +552,496 @@ def gerar_relatorio_peticao_inicial(
         )
 
     return _construir_relatorio(dados, arquivo_nome, len(paginas), paginas_ocr, baixa_confianca, avisos)
+
+
+# =============================================================================
+# Precificação Inteligente de Créditos — extração (nunca cálculo) dos termos
+# financeiros de um Plano de Recuperação Judicial. Reaproveita o mesmo
+# gateway (_client/_chamar_modelo_bruto/_chamar_modelo_json) e a mesma
+# infraestrutura de leitura em blocos (_texto_paginas/_dividir_em_blocos/
+# _LIMIAR_CARACTERES_TEXTO_UNICO/_TAMANHO_ALVO_BLOCO) já usados pela Petição
+# Inicial acima — nenhuma função dos blocos anteriores é alterada em
+# comportamento. Todo cálculo financeiro (VPL, TIR, parcelas etc.) é feito à
+# parte, em Python puro, em `src/calculadora/` — esta seção só interpreta texto.
+# =============================================================================
+
+_INSTRUCOES_PRECIFICACAO = (
+    "Você é um analista técnico que apoia a equipe de aquisição de créditos da AMF3 Capital na "
+    "leitura de Planos de Recuperação Judicial. Sua única tarefa é EXTRAIR e INTERPRETAR os termos "
+    "financeiros do plano — nunca realizar nenhum cálculo (VPL, TIR, valor de parcelas, juros "
+    "compostos etc.): todo cálculo é feito separadamente, em Python, a partir dos termos que você "
+    "extrair. Responda sempre em português do Brasil, de forma técnica e objetiva. Baseie-se "
+    "exclusivamente no texto fornecido — nunca invente percentuais, prazos, datas ou condições que "
+    "não estejam no documento. Quando uma informação não estiver presente, diga isso explicitamente "
+    "em vez de adivinhar."
+)
+
+_ESQUEMA_JSON_PLANO = """{
+  "termos_gerais": {
+    "desagio": "string", "carencia": "string", "juros": "string",
+    "correcao_monetaria": "string", "periodicidade_parcelas": "string",
+    "quantidade_parcelas": "string", "data_inicio_pagamentos": "string"
+  },
+  "termos_por_classe": [
+    {"classe": "string", "desagio": "string", "carencia": "string", "juros": "string",
+     "periodicidade_parcelas": "string", "quantidade_parcelas": "string", "observacoes": "string"}
+  ],
+  "eventos_especiais": ["string"],
+  "resumo_plano": "string",
+  "trechos_localizados": [{"pagina": "string", "trecho": "string", "contexto": "string"}]
+}"""
+
+
+def _prompt_mapa_plano(bloco_texto: str, indice: int, total: int, pagina_inicial: int, pagina_final: int) -> str:
+    return (
+        f"Você está lendo o BLOCO {indice}/{total} (páginas {pagina_inicial} a {pagina_final}) de um "
+        "Plano de Recuperação Judicial. Liste apenas fatos brutos ENCONTRADOS NESTE BLOCO sobre: "
+        "deságio, carência, juros, correção monetária, periodicidade e quantidade de parcelas, data "
+        "de início dos pagamentos, termos diferenciados por classe de credores, e quaisquer eventos "
+        "especiais (parcelas balão, condições especiais, garantias). Para cada informação relevante, "
+        "transcreva o número da página e o trecho literal (verbatim) — não resuma, não interprete, e "
+        "não conclua 'não localizado' aqui (essa decisão só é tomada depois de ver todos os blocos). "
+        "Se nada aparecer neste bloco, escreva 'Nada neste bloco.'\n\n"
+        f"Texto do bloco:\n{bloco_texto}"
+    )
+
+
+def _prompt_reducao_plano(arquivo_nome: str, texto_fonte: str) -> str:
+    return (
+        f"Documento analisado: {arquivo_nome}\n\n"
+        "A seguir está o conteúdo (ou as notas já extraídas por blocos) de um Plano de Recuperação "
+        "Judicial. Produza a extração final dos termos financeiros, respondendo SOMENTE com um "
+        f"objeto JSON no formato exato abaixo (sem markdown, sem texto fora do JSON):\n\n"
+        f"{_ESQUEMA_JSON_PLANO}\n\n"
+        "Regras: nunca invente um percentual, prazo, data ou condição que não esteja no texto — "
+        f"quando algo não for encontrado, escreva exatamente \"{NAO_LOCALIZADO}\" no campo "
+        "correspondente. 'termos_por_classe' só deve ser preenchido se o plano efetivamente "
+        "diferenciar condições por classe de credores — liste vazio ([]) caso contrário, nunca "
+        "invente uma diferenciação que não exista no texto. 'eventos_especiais' deve trazer, em "
+        "texto livre, qualquer condição fora do padrão simples de parcelas fixas (parcelas balão, "
+        "carência diferenciada, garantias, condições de aceleração de vencimento etc.) — liste "
+        "vazio ([]) se não houver. 'resumo_plano' deve resumir objetivamente a forma de pagamento "
+        "prevista. 'trechos_localizados' deve trazer, para cada termo extraído, a página, o trecho "
+        "literal (verbatim, nunca parafraseado ou inventado) e o contexto — nunca invente um "
+        "trecho. Você está apenas extraindo e interpretando o texto: NUNCA calcule valores de "
+        "parcela, VPL, TIR ou qualquer resultado financeiro — isso é feito à parte, em Python.\n\n"
+        f"Conteúdo:\n{texto_fonte}"
+    )
+
+
+def _construir_extracao_plano(dados: dict, arquivo_nome: str, avisos: list[str]) -> ExtracaoPlano:
+    """Constrói a extração a partir do dict retornado pela IA de forma
+    defensiva — mesma disciplina de `_construir_relatorio` acima: chaves
+    ausentes viram o padrão do dataclass, itens malformados são pulados
+    individualmente em vez de derrubar tudo.
+    """
+    termos_gerais_dados = dados.get("termos_gerais")
+    if not isinstance(termos_gerais_dados, dict):
+        termos_gerais_dados = {}
+    termos_gerais = TermosGerais(
+        desagio=str(termos_gerais_dados.get("desagio", NAO_LOCALIZADO)),
+        carencia=str(termos_gerais_dados.get("carencia", NAO_LOCALIZADO)),
+        juros=str(termos_gerais_dados.get("juros", NAO_LOCALIZADO)),
+        correcao_monetaria=str(termos_gerais_dados.get("correcao_monetaria", NAO_LOCALIZADO)),
+        periodicidade_parcelas=str(termos_gerais_dados.get("periodicidade_parcelas", NAO_LOCALIZADO)),
+        quantidade_parcelas=str(termos_gerais_dados.get("quantidade_parcelas", NAO_LOCALIZADO)),
+        data_inicio_pagamentos=str(termos_gerais_dados.get("data_inicio_pagamentos", NAO_LOCALIZADO)),
+    )
+
+    termos_por_classe: list[TermosClasse] = []
+    for item in dados.get("termos_por_classe") or []:
+        try:
+            termos_por_classe.append(
+                TermosClasse(
+                    classe=str(item.get("classe", NAO_LOCALIZADO)),
+                    desagio=str(item.get("desagio", NAO_LOCALIZADO)),
+                    carencia=str(item.get("carencia", NAO_LOCALIZADO)),
+                    juros=str(item.get("juros", NAO_LOCALIZADO)),
+                    periodicidade_parcelas=str(item.get("periodicidade_parcelas", NAO_LOCALIZADO)),
+                    quantidade_parcelas=str(item.get("quantidade_parcelas", NAO_LOCALIZADO)),
+                    observacoes=str(item.get("observacoes", "")),
+                )
+            )
+        except (AttributeError, TypeError):
+            continue
+
+    eventos_especiais = [str(item) for item in (dados.get("eventos_especiais") or []) if str(item).strip()]
+
+    trechos: list[TrechoPlano] = []
+    for item in dados.get("trechos_localizados") or []:
+        try:
+            trechos.append(
+                TrechoPlano(
+                    pagina=str(item.get("pagina") or "-"),
+                    trecho=str(item["trecho"]),
+                    contexto=str(item.get("contexto") or ""),
+                )
+            )
+        except (KeyError, TypeError, AttributeError):
+            continue
+
+    return ExtracaoPlano(
+        arquivo_nome=arquivo_nome,
+        data_analise=date.today(),
+        termos_gerais=termos_gerais,
+        termos_por_classe=termos_por_classe,
+        eventos_especiais=eventos_especiais,
+        resumo_plano=str(dados.get("resumo_plano", "")),
+        trechos_localizados=trechos,
+        avisos=avisos,
+    )
+
+
+def extrair_termos_plano(
+    paginas: list[PaginaExtraida],
+    arquivo_nome: str,
+    progress_callback: Callable[[str], None] | None = None,
+) -> ExtracaoPlano:
+    """Extrai (via IA) os termos financeiros de um Plano de Recuperação
+    Judicial já lido (`src.leitor_pdf.ler_pdf`) — só interpretação do texto,
+    NUNCA cálculo (todo cálculo é feito em `src/calculadora/` a partir dos
+    números que o usuário confirma com base nesta extração). Documentos
+    grandes são divididos em blocos (map) e consolidados numa única chamada
+    final (reduce), mesmo padrão de `gerar_relatorio_peticao_inicial`.
+    """
+    avisar = progress_callback or (lambda _msg: None)
+    avisos: list[str] = []
+
+    paginas_indisponiveis = [p.numero for p in paginas if p.fonte == "ocr_indisponivel"]
+    if paginas_indisponiveis:
+        avisos.append(
+            "OCR indisponível para as página(s) "
+            + ", ".join(str(p) for p in paginas_indisponiveis)
+            + " — o conteúdo dessas páginas não pôde ser lido e não está refletido na extração."
+        )
+
+    texto_completo = _texto_paginas(paginas)
+
+    if len(texto_completo) <= _LIMIAR_CARACTERES_TEXTO_UNICO:
+        avisar(f"Consultando IA (documento único, {len(paginas)} página(s))...")
+        texto_fonte = texto_completo
+    else:
+        blocos = _dividir_em_blocos(paginas)
+        notas_blocos = []
+        for indice, bloco in enumerate(blocos, start=1):
+            avisar(f"Consultando IA (bloco {indice}/{len(blocos)})...")
+            prompt_mapa = _prompt_mapa_plano(
+                _texto_paginas(bloco), indice, len(blocos), bloco[0].numero, bloco[-1].numero
+            )
+            nota = _chamar_modelo_bruto(
+                [
+                    {"role": "system", "content": _INSTRUCOES_PRECIFICACAO},
+                    {"role": "user", "content": prompt_mapa},
+                ],
+                temperatura=0.2,
+            )
+            notas_blocos.append(
+                f"=== Notas do bloco {indice}/{len(blocos)} "
+                f"(páginas {bloco[0].numero}-{bloco[-1].numero}) ===\n{nota}"
+            )
+        avisos.append(
+            f"Documento extenso: dividido em {len(blocos)} bloco(s) para análise pela IA e "
+            "consolidado numa única extração."
+        )
+        texto_fonte = "\n\n".join(notas_blocos)
+
+    avisar("Extraindo termos do plano...")
+    prompt_final = _prompt_reducao_plano(arquivo_nome, texto_fonte)
+    try:
+        dados = _chamar_modelo_json(prompt_final, _INSTRUCOES_PRECIFICACAO, temperatura=0.2)
+    except json.JSONDecodeError:
+        logger.error("Não foi possível interpretar a resposta da IA como JSON para '%s'.", arquivo_nome)
+        mensagem_falha = (
+            "Não foi possível extrair os termos automaticamente (falha ao interpretar a resposta "
+            "da IA). Tente novamente ou preencha os parâmetros manualmente."
+        )
+        avisos.append(mensagem_falha)
+        return _construir_extracao_plano({"resumo_plano": mensagem_falha}, arquivo_nome, avisos)
+
+    return _construir_extracao_plano(dados, arquivo_nome, avisos)
+
+
+# =============================================================================
+# Assistente de Estrutura Financeira — converte uma descrição em texto livre
+# de uma proposta de financiamento em parâmetros estruturados para o
+# Simulador de Financiamento (`src/calculadora/`). Mesma regra das seções
+# acima: a IA só interpreta o texto, NUNCA realiza nenhum cálculo — os
+# parâmetros retornados apenas pré-preenchem o formulário, que o usuário
+# ainda revisa e confirma antes de calcular.
+# =============================================================================
+
+_INSTRUCOES_ASSISTENTE_FINANCEIRO = (
+    "Você é um assistente que converte uma descrição em texto livre de uma proposta de "
+    "financiamento em parâmetros estruturados. Você NUNCA realiza nenhum cálculo financeiro "
+    "(parcelas, juros compostos, VPL etc.) — apenas interpreta o texto e extrai os valores e "
+    "condições mencionados. Responda sempre em português do Brasil. Quando um valor não for "
+    "mencionado no texto, mantenha o campo correspondente como `null` — nunca invente um número "
+    "ou condição que não esteja no texto."
+)
+
+_ESQUEMA_JSON_ESTRUTURA_FINANCIAMENTO = """{
+  "valor_financiado": number ou null,
+  "valor_entrada": number ou null,
+  "taxa_percentual": number ou null,
+  "periodicidade_taxa": "Mensal" | "Bimestral" | "Trimestral" | "Quadrimestral" | "Semestral" | "Anual" ou null,
+  "prazo": number ou null,
+  "periodicidade_parcela": "Mensal" | "Bimestral" | "Trimestral" | "Quadrimestral" | "Semestral" | "Anual" ou null,
+  "carencia": number ou null,
+  "sistema": "Tabela Price" | "Tabela SAC" | "Sistema Americano" ou null,
+  "observacoes": "string"
+}"""
+
+
+def extrair_estrutura_financiamento(texto: str) -> dict:
+    """Converte uma descrição em texto livre de um financiamento em
+    parâmetros estruturados — só interpretação, NUNCA cálculo (o Simulador
+    de Financiamento calcula tudo a partir destes números, depois de o
+    usuário confirmar/ajustar no formulário). Propaga `RuntimeError` (falha
+    de API) e `json.JSONDecodeError` (resposta não interpretável) — o
+    chamador decide o fallback.
+    """
+    prompt = (
+        "Extraia os parâmetros de financiamento do texto abaixo, respondendo SOMENTE com um "
+        f"objeto JSON no formato exato (sem markdown, sem texto fora do JSON):\n\n"
+        f"{_ESQUEMA_JSON_ESTRUTURA_FINANCIAMENTO}\n\n"
+        f"Texto:\n{texto}"
+    )
+    return _chamar_modelo_json(prompt, _INSTRUCOES_ASSISTENTE_FINANCEIRO, temperatura=0.1)
+
+
+# =============================================================================
+# Análise de Documentos — módulo independente que aceita qualquer formato
+# suportado por `src/leitor_documentos.py` (PDF, DOCX, XLSX, TXT, imagem,
+# link), já normalizado para texto simples antes de chegar aqui. Reaproveita
+# o mesmo gateway (_client/_chamar_modelo_bruto/_chamar_modelo_json) e a
+# mesma disciplina de map-reduce das seções acima, mas com chunking por
+# caracteres (sem conceito de página, que só existe para PDF).
+# =============================================================================
+
+_INSTRUCOES_ANALISE_DOCUMENTO = (
+    "Você é um analista técnico que apoia a equipe de aquisição de créditos da AMF3 Capital na "
+    "leitura de documentos diversos relacionados a processos de Recuperação Judicial (contratos, "
+    "atas, certidões, laudos, editais, páginas web, entre outros). Responda sempre em português do "
+    "Brasil, de forma técnica e objetiva. Baseie-se exclusivamente no texto fornecido — nunca "
+    "invente fatos, valores, datas ou cláusulas que não estejam no documento. Quando uma informação "
+    "não estiver presente, diga isso explicitamente em vez de adivinhar. Não forneça aconselhamento "
+    "jurídico ou financeiro nem garanta resultados."
+)
+
+_ESQUEMA_JSON_ANALISE_DOCUMENTO = """{
+  "resumo_executivo": "string",
+  "objetivo_documento": "string",
+  "pontos_importantes": ["string"],
+  "riscos_juridicos": [{"item": "string", "contexto": "string"}],
+  "riscos_financeiros": [{"item": "string", "contexto": "string"}],
+  "garantias": [{"item": "string", "contexto": "string"}],
+  "execucoes": [{"item": "string", "contexto": "string"}],
+  "passivo_fiscal": "string",
+  "clausulas_relevantes": [{"item": "string", "contexto": "string"}],
+  "datas_relevantes": [{"item": "string", "contexto": "string"}],
+  "valores_relevantes": [{"item": "string", "contexto": "string"}],
+  "impacto_aquisicao_creditos": "string",
+  "conclusao": "string"
+}"""
+
+
+def _dividir_texto_em_blocos(texto: str, tamanho_alvo: int = _TAMANHO_ALVO_BLOCO) -> list[str]:
+    """Divide um texto simples (sem conceito de página) em blocos de tamanho
+    aproximado — usado por fontes não paginadas (DOCX/XLSX/TXT/imagem/link);
+    PDF continua usando `_dividir_em_blocos` (que respeita fronteiras de
+    página) via `src/leitor_documentos.py`.
+    """
+    if len(texto) <= tamanho_alvo:
+        return [texto]
+    return [texto[i : i + tamanho_alvo] for i in range(0, len(texto), tamanho_alvo)]
+
+
+def _prompt_mapa_documento(bloco_texto: str, indice: int, total: int) -> str:
+    return (
+        f"Você está lendo o BLOCO {indice}/{total} de um documento relacionado a um processo de "
+        "Recuperação Judicial. Liste apenas fatos brutos ENCONTRADOS NESTE BLOCO sobre: objetivo do "
+        "documento, pontos importantes, riscos jurídicos, riscos financeiros, garantias, execuções, "
+        "passivo fiscal, cláusulas relevantes, datas e valores — não resuma, não interprete, e não "
+        "conclua 'não localizado' aqui (essa decisão só é tomada depois de ver todos os blocos). Se "
+        "nada aparecer neste bloco, escreva 'Nada neste bloco.'\n\n"
+        f"Texto do bloco:\n{bloco_texto}"
+    )
+
+
+def _prompt_reducao_documento(arquivo_nome: str, texto_fonte: str) -> str:
+    return (
+        f"Documento analisado: {arquivo_nome}\n\n"
+        "A seguir está o conteúdo (ou as notas já extraídas por blocos) de um documento relacionado "
+        "a um processo de Recuperação Judicial. Produza a análise final, respondendo SOMENTE com um "
+        f"objeto JSON no formato exato abaixo (sem markdown, sem texto fora do JSON):\n\n"
+        f"{_ESQUEMA_JSON_ANALISE_DOCUMENTO}\n\n"
+        "Regras: nunca invente informação que não esteja no texto — quando algo não for encontrado, "
+        f"escreva exatamente \"{NAO_LOCALIZADO}\" no campo de texto correspondente, ou liste vazio "
+        "([]) nos campos de lista. 'impacto_aquisicao_creditos' deve trazer uma leitura estratégica "
+        "para a AMF3 Capital sobre como o conteúdo do documento pode afetar uma eventual aquisição "
+        "de créditos — SEM prometer resultados nem substituir aconselhamento jurídico ou financeiro. "
+        "'conclusao' deve ser um parecer técnico e objetivo, como se fosse entregue à Diretoria da "
+        "AMF3 Capital.\n\n"
+        f"Conteúdo:\n{texto_fonte}"
+    )
+
+
+def _construir_analise_documento(dados: dict, arquivo_nome: str, tipo_origem: str, avisos: list[str]) -> AnaliseDocumento:
+    """Constrói a análise a partir do dict retornado pela IA de forma
+    defensiva — mesma disciplina das demais seções deste módulo: chaves
+    ausentes viram o padrão do dataclass, itens malformados são pulados
+    individualmente em vez de derrubar tudo.
+    """
+
+    def _texto(chave: str) -> str:
+        valor = dados.get(chave, "")
+        return valor if isinstance(valor, str) else str(valor)
+
+    def _lista_str(chave: str) -> list[str]:
+        valor = dados.get(chave)
+        if not isinstance(valor, list):
+            return []
+        return [str(item) for item in valor if str(item).strip()]
+
+    def _lista_item_contexto(chave: str) -> list[ItemComContexto]:
+        resultado: list[ItemComContexto] = []
+        for item in dados.get(chave) or []:
+            try:
+                resultado.append(ItemComContexto(item=str(item["item"]), contexto=str(item.get("contexto") or "")))
+            except (KeyError, TypeError, AttributeError):
+                continue
+        return resultado
+
+    return AnaliseDocumento(
+        arquivo_nome=arquivo_nome,
+        tipo_origem=tipo_origem,
+        data_analise=date.today(),
+        resumo_executivo=_texto("resumo_executivo"),
+        objetivo_documento=_texto("objetivo_documento"),
+        pontos_importantes=_lista_str("pontos_importantes"),
+        riscos_juridicos=_lista_item_contexto("riscos_juridicos"),
+        riscos_financeiros=_lista_item_contexto("riscos_financeiros"),
+        garantias=_lista_item_contexto("garantias"),
+        execucoes=_lista_item_contexto("execucoes"),
+        passivo_fiscal=_texto("passivo_fiscal"),
+        clausulas_relevantes=_lista_item_contexto("clausulas_relevantes"),
+        datas_relevantes=_lista_item_contexto("datas_relevantes"),
+        valores_relevantes=_lista_item_contexto("valores_relevantes"),
+        impacto_aquisicao_creditos=_texto("impacto_aquisicao_creditos"),
+        conclusao=_texto("conclusao"),
+        avisos=avisos,
+    )
+
+
+def analisar_documento(
+    texto: str,
+    arquivo_nome: str,
+    tipo_origem: str,
+    progress_callback: Callable[[str], None] | None = None,
+) -> AnaliseDocumento:
+    """Analisa (via IA) um documento já lido em texto simples
+    (`src.leitor_documentos.ler_documento`/`ler_link`). Documentos grandes
+    são divididos em blocos por caracteres (map) e consolidados numa única
+    chamada final (reduce) — mesmo padrão de `gerar_relatorio_peticao_inicial`,
+    adaptado para fontes sem conceito de página.
+    """
+    avisar = progress_callback or (lambda _msg: None)
+    avisos: list[str] = []
+
+    if len(texto) <= _LIMIAR_CARACTERES_TEXTO_UNICO:
+        avisar("Consultando IA (documento único)...")
+        texto_fonte = texto
+    else:
+        blocos = _dividir_texto_em_blocos(texto)
+        notas_blocos = []
+        for indice, bloco in enumerate(blocos, start=1):
+            avisar(f"Consultando IA (bloco {indice}/{len(blocos)})...")
+            prompt_mapa = _prompt_mapa_documento(bloco, indice, len(blocos))
+            nota = _chamar_modelo_bruto(
+                [
+                    {"role": "system", "content": _INSTRUCOES_ANALISE_DOCUMENTO},
+                    {"role": "user", "content": prompt_mapa},
+                ],
+                temperatura=0.2,
+            )
+            notas_blocos.append(f"=== Notas do bloco {indice}/{len(blocos)} ===\n{nota}")
+        avisos.append(
+            f"Documento extenso: dividido em {len(blocos)} bloco(s) para análise pela IA e "
+            "consolidado numa única análise."
+        )
+        texto_fonte = "\n\n".join(notas_blocos)
+
+    avisar("Gerando análise final...")
+    prompt_final = _prompt_reducao_documento(arquivo_nome, texto_fonte)
+    try:
+        dados = _chamar_modelo_json(prompt_final, _INSTRUCOES_ANALISE_DOCUMENTO, temperatura=0.2)
+    except json.JSONDecodeError:
+        logger.error("Não foi possível interpretar a resposta da IA como JSON para '%s'.", arquivo_nome)
+        mensagem_falha = (
+            "Não foi possível gerar esta análise automaticamente (falha ao interpretar a resposta "
+            "da IA). Tente gerar a análise novamente."
+        )
+        avisos.append(mensagem_falha)
+        dados_fallback = {"resumo_executivo": mensagem_falha, "conclusao": mensagem_falha}
+        return _construir_analise_documento(dados_fallback, arquivo_nome, tipo_origem, avisos)
+
+    return _construir_analise_documento(dados, arquivo_nome, tipo_origem, avisos)
+
+
+def responder_pergunta_documento(texto: str, pergunta: str) -> str:
+    """Responde a uma pergunta livre do usuário sobre o documento analisado,
+    com base no texto integral já extraído (ou um recorte inicial, para
+    documentos muito grandes, dentro do limite de contexto do modelo).
+    """
+    texto_contexto = texto if len(texto) <= _LIMIAR_CARACTERES_TEXTO_UNICO else texto[:_LIMIAR_CARACTERES_TEXTO_UNICO]
+    prompt = (
+        f"Conteúdo do documento:\n{texto_contexto}\n\n"
+        f"Pergunta do usuário: {pergunta}\n\n"
+        "Responda com base exclusivamente no conteúdo acima — se a resposta não estiver no texto, "
+        "diga isso explicitamente."
+    )
+    return _chamar_modelo_bruto(
+        [
+            {"role": "system", "content": _INSTRUCOES_ANALISE_DOCUMENTO},
+            {"role": "user", "content": prompt},
+        ],
+        temperatura=0.2,
+    )
+
+
+# =============================================================================
+# Proposta ao Credor — geração de texto formal (não extração/JSON) a partir
+# de dados informados pelo usuário. Reaproveita o mesmo gateway
+# (_chamar_modelo_bruto) das seções acima.
+# =============================================================================
+
+_INSTRUCOES_PROPOSTA_CREDOR = (
+    "Você é um redator institucional que apoia a equipe de aquisição de créditos da AMF3 Capital na "
+    "elaboração de propostas formais de aquisição de crédito, endereçadas a credores em processos de "
+    "Recuperação Judicial. Escreva sempre em português do Brasil, em tom formal, institucional e "
+    "cortês, pronto para envio por e-mail. Baseie-se exclusivamente nos dados fornecidos — nunca "
+    "invente valores, prazos ou condições que não tenham sido informados. Não garanta resultados, "
+    "não ofereça aconselhamento jurídico ou financeiro, e não assuma compromissos além dos dados "
+    "fornecidos."
+)
+
+
+def gerar_proposta_credor(dados: dict) -> str:
+    """Gera (via IA) o texto formal de uma proposta de aquisição de crédito,
+    pronto para revisão e envio — geração de texto (não extração/JSON), com
+    base exclusivamente nos dados fornecidos pelo usuário.
+    """
+    linhas_dados = [f"- {chave}: {valor}" for chave, valor in dados.items() if valor not in (None, "", [])]
+    prompt = (
+        "Redija uma proposta formal de aquisição de crédito, em formato de e-mail institucional "
+        "(saudação, corpo e encerramento), contendo: contextualização, justificativa financeira, "
+        "benefícios da cessão para o credor, argumentação técnica, riscos considerados (se "
+        "informados) e as condições da proposta. Use apenas os dados abaixo:\n\n" + "\n".join(linhas_dados)
+    )
+    return _chamar_modelo_bruto(
+        [
+            {"role": "system", "content": _INSTRUCOES_PROPOSTA_CREDOR},
+            {"role": "user", "content": prompt},
+        ],
+        temperatura=0.4,
+    )

@@ -29,3 +29,6 @@ python-dotenv>=1.0
 
 # Calculadora — integração com a API pública do Banco Central (SELIC)
 requests>=2.31
+
+# Análise de Documentos — extração de texto de páginas web (módulo de links)
+beautifulsoup4>=4.12

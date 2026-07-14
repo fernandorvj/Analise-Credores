@@ -12,7 +12,16 @@ from __future__ import annotations
 import streamlit as st
 
 from config import NOME_SISTEMA
-from interface import calculadora, dashboard, home, layout, peticao_inicial
+from interface import (
+    analise_documentos,
+    calculadora,
+    dashboard,
+    home,
+    layout,
+    peticao_inicial,
+    precificacao,
+    proposta_credor,
+)
 
 st.set_page_config(page_title=NOME_SISTEMA, page_icon="⚖️", layout="wide")
 
@@ -32,6 +41,12 @@ elif pagina == "peticao_inicial":
     peticao_inicial.renderizar_peticao_inicial()
 elif pagina == "calculadora":
     calculadora.renderizar_calculadora()
+elif pagina == "precificacao":
+    precificacao.renderizar_precificacao()
+elif pagina == "analise_documentos":
+    analise_documentos.renderizar_analise_documentos()
+elif pagina == "proposta_credor":
+    proposta_credor.renderizar_proposta_credor()
 elif pagina == "configuracoes":
     layout.renderizar_pagina_em_construcao(
         chave_icone="configuracoes",
