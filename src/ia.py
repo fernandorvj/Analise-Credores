@@ -30,7 +30,7 @@ from src.models_peticao_inicial import (
     TrechoFiscal,
 )
 from src.models_analise_documentos import AnaliseDocumento, ItemComContexto
-from src.models_precificacao import CondicoesPagamentoClasse, ExtracaoPlanoPorClasse, TrechoPlano
+from src.models_precificacao import CondicoesGerais, CondicoesPagamentoClasse, ExtracaoPlanoPorClasse, TrechoPlano
 
 logger = configurar_logging()
 
@@ -592,21 +592,54 @@ def _esquema_json_plano_por_classe() -> str:
         '"fluxos_alternativos": "string", "excecoes_regras_especiais": "string", '
         '"trechos_localizados": [{"pagina": "string", "trecho": "string", "contexto": "string"}]}'
     )
+    campos_gerais = (
+        '{"descricao": "string", "desagio": "string", "carencia": "string", '
+        '"correcao_monetaria_indice": "string", "juros": "string", "periodicidade": "string", '
+        '"trechos_localizados": [{"pagina": "string", "trecho": "string", "contexto": "string"}]}'
+    )
     linhas_classe = ",\n    ".join(f'"{classe}": {campos_classe}' for classe in CLASSES_RJ_PADRAO)
-    return "{\n  \"condicoes_por_classe\": {\n    " + linhas_classe + "\n  }\n}"
+    return (
+        "{\n  \"condicoes_gerais\": " + campos_gerais + ",\n  \"condicoes_por_classe\": {\n    "
+        + linhas_classe + "\n  }\n}"
+    )
 
 
 def _prompt_mapa_plano_classe(bloco_texto: str, indice: int, total: int) -> str:
     classes_texto = "; ".join(CLASSES_RJ_PADRAO)
     return (
-        f"Você está lendo o BLOCO {indice}/{total} de um Plano de Recuperação Judicial. Para cada "
-        f"uma das classes de credores ({classes_texto}) mencionada NESTE BLOCO, liste apenas fatos "
-        "brutos ENCONTRADOS AQUI sobre: deságio, carência, índice de correção monetária, juros, "
-        "número de parcelas, periodicidade, data da primeira parcela, parcela balão, fluxos "
-        "alternativos e exceções/regras especiais. Para cada informação relevante, transcreva o "
-        "número da página e o trecho literal (verbatim) — não resuma, não interprete, e não "
-        "conclua 'não localizado' aqui (essa decisão só é tomada depois de ver todos os blocos). "
-        "Se nada aparecer neste bloco, escreva 'Nada neste bloco.'\n\n"
+        f"Você está lendo o BLOCO {indice}/{total} de um Plano de Recuperação Judicial. Planos de RJ "
+        "costumam declarar as condições em DUAS camadas: (a) regras GERAIS, válidas para todo o "
+        "Quadro Geral de Credores (ex.: metodologia de correção monetária, índice, taxa de juros, "
+        "teto/limite, periodicidade padrão) — geralmente descritas em UM único trecho, antes do "
+        "detalhamento por classe, e nem sempre usando a palavra 'geral'; e (b) regras ESPECÍFICAS de "
+        "cada classe (ex.: percentual de deságio, número de parcelas, data da primeira parcela) — "
+        "que só valem para aquela classe. Primeiro, sob o rótulo 'CONDIÇÕES GERAIS', liste qualquer "
+        "trecho ENCONTRADO NESTE BLOCO que pareça se aplicar a todas as classes/todo o Quadro Geral "
+        "de Credores (correção monetária, juros, periodicidade, deságio, carência aplicáveis a todos). "
+        f"Depois, para cada uma das classes de credores ({classes_texto}) mencionada NESTE BLOCO, "
+        "liste apenas fatos brutos ENCONTRADOS AQUI que sejam ESPECÍFICOS DAQUELA classe sobre: "
+        "deságio, carência, índice de correção monetária, juros, número de parcelas, periodicidade, "
+        "data da primeira parcela, parcela balão, fluxos alternativos e exceções/regras especiais. "
+        "IMPORTANTE sobre carência: o documento raramente usa a palavra 'carência' — ela normalmente "
+        "aparece como uma frase relativa a uma data, do tipo 'a primeira parcela vence X dias/meses/"
+        "anos após [homologação/trânsito em julgado/publicação da decisão]'; sempre que encontrar uma "
+        "frase assim, transcreva-a tanto como carência quanto como data da primeira parcela. IMPORTANTE "
+        "sobre deságio: se a cláusula da classe usar explicitamente a palavra 'deságio' com um "
+        "percentual (ex.: 'considerando deságio em 85%'), esse É o deságio da classe — use sempre esse "
+        "valor, mesmo que a mesma cláusula também mencione um 'pagamento de X%' com percentual "
+        "diferente (esse X% é apenas a forma/prazo do pagamento, não o deságio). SÓ quando a cláusula "
+        "da classe NÃO usar a palavra 'deságio' em nenhum momento, então trate 'pagamento de X% dos "
+        "créditos' como equivalente ao deságio da própria classe (X%) — nunca use o deságio de outra "
+        "classe. Nunca copie ou repita, para uma classe, um trecho ou número que no texto "
+        "pertence claramente a outra classe — isso vale mesmo quando a classe tem uma cláusula de "
+        "teto/limite/conversão para outra classe (ex.: 'o que exceder será convertido para a Classe "
+        "III'): registre a cláusula de teto/conversão como está, mas não misture o deságio, prazo ou "
+        "parcelas da classe de destino com os da classe de origem. Cada trecho vai apenas na classe "
+        "(ou em 'CONDIÇÕES GERAIS') a que ele realmente se refere no documento. Para cada informação "
+        "relevante, transcreva o número da "
+        "página e o trecho literal (verbatim) — não resuma, não interprete, e não conclua 'não "
+        "localizado' aqui (essa decisão só é tomada depois de ver todos os blocos). Se nada aparecer "
+        "neste bloco, escreva 'Nada neste bloco.'\n\n"
         f"Texto do bloco:\n{bloco_texto}"
     )
 
@@ -617,19 +650,119 @@ def _prompt_reducao_plano_classe(arquivo_nome: str, texto_fonte: str) -> str:
         "A seguir está o conteúdo (ou as notas já extraídas por blocos) de um Plano de Recuperação "
         "Judicial — pode ser o texto integral de um PDF ou um trecho colado diretamente pelo "
         "usuário; trate os dois casos exatamente da mesma forma. Produza a extração final das "
-        "condições de pagamento POR CLASSE DE CREDORES, respondendo SOMENTE com um objeto JSON no "
-        f"formato exato abaixo (sem markdown, sem texto fora do JSON):\n\n{_esquema_json_plano_por_classe()}\n\n"
-        "Regras: use exatamente as 4 chaves de classe indicadas no esquema, mesmo que uma classe "
-        f"não tenha nenhuma condição localizada (nesse caso, escreva \"{NAO_LOCALIZADO}\" em todos "
-        "os campos de texto dessa classe e deixe 'trechos_localizados' vazio, []). Nunca invente um "
-        "percentual, prazo, data, índice ou condição que não esteja no texto — quando algo não for "
-        f"encontrado, escreva exatamente \"{NAO_LOCALIZADO}\" no campo correspondente. "
-        "'parcela_balao' deve descrever a condição encontrada (ex.: '20% do saldo no 36º mês') ou "
-        f"\"{NAO_LOCALIZADO}\" se não houver menção. 'trechos_localizados' deve trazer, para cada "
-        "condição extraída, a página, o trecho literal (verbatim, nunca parafraseado ou inventado) "
-        "e o contexto. Você está apenas extraindo e interpretando o texto: NUNCA calcule valores de "
-        "parcela, VPL ou qualquer resultado financeiro — isso é feito à parte, em Python.\n\n"
+        "condições de pagamento, respondendo SOMENTE com um objeto JSON no formato exato abaixo (sem "
+        f"markdown, sem texto fora do JSON):\n\n{_esquema_json_plano_por_classe()}\n\n"
+        "'condicoes_gerais' guarda as regras que valem para TODAS as classes/todo o Quadro Geral de "
+        "Credores, geralmente declaradas uma única vez no documento (ex.: metodologia de correção "
+        "monetária com índice + teto, taxa de juros geral, periodicidade padrão) — mesmo que o texto "
+        "não use a palavra 'geral'. 'condicoes_por_classe' guarda SOMENTE o que é específico de cada "
+        "classe (ex.: percentual de deságio daquela classe, número de parcelas daquela classe, data "
+        "da primeira parcela daquela classe) — NÃO repita em cada classe uma condição que já está em "
+        "'condicoes_gerais'; deixe o campo da classe como \"" + NAO_LOCALIZADO + "\" nesse caso (o "
+        "cruzamento entre geral e específico é feito depois, em Python, não por você). "
+        "IMPORTANTE sobre carência: como o documento raramente usa a palavra 'carência', procure "
+        "frases do tipo 'a primeira parcela vence X dias/meses/anos após [homologação/trânsito em "
+        "julgado/publicação da decisão]' — isso É uma carência implícita; preencha o campo 'carencia' "
+        "com essa informação (ex.: '180 dias da homologação da Recuperação Judicial'), mesmo que a "
+        "palavra 'carência' nunca apareça no texto. IMPORTANTE sobre deságio: se a cláusula da classe "
+        "usar explicitamente a palavra 'deságio' com um percentual (ex.: 'considerando deságio em "
+        "85%'), esse É o deságio da classe — priorize sempre esse valor, mesmo que a mesma cláusula "
+        "também mencione um 'pagamento de X%' com percentual diferente (esse X% é só a forma/prazo do "
+        "pagamento, não o deságio). SÓ quando a cláusula da classe NÃO usar a palavra 'deságio' em "
+        "nenhum momento, trate 'pagamento de X% dos créditos' como equivalente ao deságio de X% "
+        "daquela própria classe — preencha 'desagio' com esse X%, nunca com o percentual de deságio de "
+        "outra classe. IMPORTANTE: nunca copie um trecho, percentual, "
+        "prazo ou data de uma classe para outra — cada informação vai apenas na classe (ou em "
+        "'condicoes_gerais') a que ela pertence de fato no texto original. Isso vale mesmo quando a "
+        "classe tem uma cláusula de teto/limite/conversão (ex.: 'o que exceder de X salários-mínimos "
+        "será convertido para a Classe III') ou uma referência cruzada (ex.: 'obedecerá aos critérios "
+        "da Classe III'): nesses casos, registre a cláusula textualmente no campo "
+        "'excecoes_regras_especiais' daquela classe, mas NUNCA copie o deságio, o número de parcelas, "
+        "a periodicidade ou qualquer outro número da classe referenciada/de destino da conversão para "
+        "os campos da classe de origem — os campos numéricos da classe de origem devem refletir "
+        "SOMENTE a cláusula própria dela.\n\n"
+        "Regras gerais: use exatamente as 4 chaves de classe indicadas no esquema, mesmo que uma "
+        f"classe não tenha nenhuma condição específica localizada (nesse caso, escreva \"{NAO_LOCALIZADO}\" "
+        "em todos os campos de texto dessa classe e deixe 'trechos_localizados' vazio, []). Nunca "
+        "invente um percentual, prazo, data, índice ou condição que não esteja no texto — quando algo "
+        f"não for encontrado (nem na classe, nem nas condições gerais), escreva exatamente \"{NAO_LOCALIZADO}\" "
+        "no campo correspondente. 'parcela_balao' deve descrever a condição encontrada (ex.: '20% do "
+        f"saldo no 36º mês') ou \"{NAO_LOCALIZADO}\" se não houver menção. 'trechos_localizados' deve "
+        "trazer, para cada condição extraída (geral ou por classe), a página, o trecho literal "
+        "(verbatim, nunca parafraseado ou inventado) e o contexto. Você está apenas extraindo e "
+        "interpretando o texto: NUNCA calcule valores de parcela, VPL ou qualquer resultado "
+        "financeiro — isso é feito à parte, em Python.\n\n"
         f"Conteúdo:\n{texto_fonte}"
+    )
+
+
+def _trechos_de(dados: dict) -> list[TrechoPlano]:
+    trechos: list[TrechoPlano] = []
+    for item in dados.get("trechos_localizados") or []:
+        try:
+            trechos.append(
+                TrechoPlano(
+                    pagina=str(item.get("pagina") or "-"),
+                    trecho=str(item["trecho"]),
+                    contexto=str(item.get("contexto") or ""),
+                )
+            )
+        except (KeyError, TypeError, AttributeError):
+            continue
+    return trechos
+
+
+def _construir_condicoes_gerais(dados: dict) -> CondicoesGerais:
+    dados_gerais = dados.get("condicoes_gerais")
+    if not isinstance(dados_gerais, dict):
+        dados_gerais = {}
+    return CondicoesGerais(
+        descricao=str(dados_gerais.get("descricao", "")),
+        desagio=str(dados_gerais.get("desagio", NAO_LOCALIZADO)),
+        carencia=str(dados_gerais.get("carencia", NAO_LOCALIZADO)),
+        correcao_monetaria_indice=str(dados_gerais.get("correcao_monetaria_indice", NAO_LOCALIZADO)),
+        juros=str(dados_gerais.get("juros", NAO_LOCALIZADO)),
+        periodicidade=str(dados_gerais.get("periodicidade", NAO_LOCALIZADO)),
+        trechos_localizados=_trechos_de(dados_gerais),
+    )
+
+
+def _mesclar_com_geral(classe: CondicoesPagamentoClasse, geral: CondicoesGerais) -> CondicoesPagamentoClasse:
+    """Mescla, de forma determinística (sem IA), as condições específicas de
+    uma classe com as condições gerais do plano — a condição da classe tem
+    sempre prioridade; a condição geral só é usada quando a classe está
+    genuinamente em branco (`NAO_LOCALIZADO`). Nunca o contrário: uma
+    condição geral jamais sobrescreve algo que a classe já especificou.
+    """
+    usou_geral = False
+    campos = ("desagio", "carencia", "correcao_monetaria_indice", "juros", "periodicidade")
+    valores_mesclados = {}
+    for campo in campos:
+        valor_classe = getattr(classe, campo)
+        valor_geral = getattr(geral, campo)
+        if valor_classe == NAO_LOCALIZADO and valor_geral != NAO_LOCALIZADO:
+            valores_mesclados[campo] = valor_geral
+            usou_geral = True
+        else:
+            valores_mesclados[campo] = valor_classe
+
+    trechos = list(classe.trechos_localizados)
+    if usou_geral:
+        trechos.extend(geral.trechos_localizados)
+
+    return CondicoesPagamentoClasse(
+        classe=classe.classe,
+        desagio=valores_mesclados["desagio"],
+        carencia=valores_mesclados["carencia"],
+        correcao_monetaria_indice=valores_mesclados["correcao_monetaria_indice"],
+        juros=valores_mesclados["juros"],
+        numero_parcelas=classe.numero_parcelas,
+        periodicidade=valores_mesclados["periodicidade"],
+        data_primeira_parcela=classe.data_primeira_parcela,
+        parcela_balao=classe.parcela_balao,
+        fluxos_alternativos=classe.fluxos_alternativos,
+        excecoes_regras_especiais=classe.excecoes_regras_especiais,
+        trechos_localizados=trechos,
     )
 
 
@@ -639,11 +772,15 @@ def _construir_extracao_plano_classe(dados: dict, arquivo_nome: str, avisos: lis
     ausentes viram o padrão do dataclass, itens malformados são pulados
     individualmente em vez de derrubar tudo. Garante que as 4 classes
     padrão estejam sempre presentes no resultado, mesmo que a IA não tenha
-    retornado nada para alguma delas.
+    retornado nada para alguma delas. As condições gerais extraídas
+    separadamente são mescladas em cada classe de forma determinística em
+    Python (`_mesclar_com_geral`) — a IA nunca decide essa propagação.
     """
     condicoes_dados = dados.get("condicoes_por_classe")
     if not isinstance(condicoes_dados, dict):
         condicoes_dados = {}
+
+    condicoes_gerais = _construir_condicoes_gerais(dados)
 
     condicoes_por_classe: dict[str, CondicoesPagamentoClasse] = {}
     for classe in CLASSES_RJ_PADRAO:
@@ -651,20 +788,7 @@ def _construir_extracao_plano_classe(dados: dict, arquivo_nome: str, avisos: lis
         if not isinstance(dados_classe, dict):
             dados_classe = {}
 
-        trechos: list[TrechoPlano] = []
-        for item in dados_classe.get("trechos_localizados") or []:
-            try:
-                trechos.append(
-                    TrechoPlano(
-                        pagina=str(item.get("pagina") or "-"),
-                        trecho=str(item["trecho"]),
-                        contexto=str(item.get("contexto") or ""),
-                    )
-                )
-            except (KeyError, TypeError, AttributeError):
-                continue
-
-        condicoes_por_classe[classe] = CondicoesPagamentoClasse(
+        condicoes_classe = CondicoesPagamentoClasse(
             classe=classe,
             desagio=str(dados_classe.get("desagio", NAO_LOCALIZADO)),
             carencia=str(dados_classe.get("carencia", NAO_LOCALIZADO)),
@@ -676,12 +800,14 @@ def _construir_extracao_plano_classe(dados: dict, arquivo_nome: str, avisos: lis
             parcela_balao=str(dados_classe.get("parcela_balao", NAO_LOCALIZADO)),
             fluxos_alternativos=str(dados_classe.get("fluxos_alternativos", "")),
             excecoes_regras_especiais=str(dados_classe.get("excecoes_regras_especiais", "")),
-            trechos_localizados=trechos,
+            trechos_localizados=_trechos_de(dados_classe),
         )
+        condicoes_por_classe[classe] = _mesclar_com_geral(condicoes_classe, condicoes_gerais)
 
     return ExtracaoPlanoPorClasse(
         arquivo_nome=arquivo_nome,
         data_analise=date.today(),
+        condicoes_gerais=condicoes_gerais,
         condicoes_por_classe=condicoes_por_classe,
         avisos=avisos,
     )

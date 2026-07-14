@@ -47,14 +47,37 @@ class CondicoesPagamentoClasse:
 
 
 @dataclass
+class CondicoesGerais:
+    """Condições do Plano de RJ que se aplicam a TODOS os credores/todas as
+    classes, geralmente declaradas uma única vez (ex.: metodologia de
+    correção monetária ou juros do Quadro Geral de Credores) antes do
+    detalhamento específico de cada classe — mesmo que o texto não use a
+    palavra "geral". Usada para preencher os campos de uma classe quando a
+    cláusula específica dela não menciona aquele campo (a classe sempre tem
+    prioridade; a condição geral só entra quando a classe está em branco —
+    ver `_mesclar_com_geral` em `src/ia.py`).
+    """
+
+    descricao: str = ""
+    desagio: str = NAO_LOCALIZADO
+    carencia: str = NAO_LOCALIZADO
+    correcao_monetaria_indice: str = NAO_LOCALIZADO
+    juros: str = NAO_LOCALIZADO
+    periodicidade: str = NAO_LOCALIZADO
+    trechos_localizados: list[TrechoPlano] = field(default_factory=list)
+
+
+@dataclass
 class ExtracaoPlanoPorClasse:
-    """Resultado da extração via IA do Plano de RJ — condições de pagamento
-    organizadas pelas 4 classes padrão (`config.CLASSES_RJ_PADRAO`). Só
-    interpretação do texto, nunca cálculo.
+    """Resultado da extração via IA do Plano de RJ — condições gerais (se
+    houver) mais as condições de pagamento organizadas pelas 4 classes
+    padrão (`config.CLASSES_RJ_PADRAO`), já mescladas (específico da classe
+    sobrepõe o geral). Só interpretação do texto, nunca cálculo.
     """
 
     arquivo_nome: str
     data_analise: date
+    condicoes_gerais: CondicoesGerais = field(default_factory=CondicoesGerais)
     condicoes_por_classe: dict[str, CondicoesPagamentoClasse] = field(default_factory=dict)
     avisos: list[str] = field(default_factory=list)
 

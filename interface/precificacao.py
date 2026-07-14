@@ -33,6 +33,7 @@ from src.calculadora.precificacao_motor import ParametrosCalculoClasse, calcular
 from src.calculadora.selic import ORIGEM_MANUAL, obter_selic_bacen
 from src.exportar_excel_precificacao import exportar_excel_precificacao
 from src.exportar_word_precificacao import exportar_word_precificacao
+from src.models_peticao_inicial import NAO_LOCALIZADO
 from src.models_precificacao import CondicoesPagamentoClasse, ExtracaoPlanoPorClasse, ResultadoPrecificacaoClasse
 from src.utils import formatar_moeda, formatar_percentual
 
@@ -125,7 +126,36 @@ def _renderizar_quadro_geral(extracao: ExtracaoPlanoPorClasse) -> None:
     for aviso in extracao.avisos:
         st.info(aviso)
 
-    st.markdown("#### Condições Identificadas pelo Plano")
+    geral = extracao.condicoes_gerais
+    tem_condicao_geral = any(
+        getattr(geral, campo) != NAO_LOCALIZADO
+        for campo in ("desagio", "carencia", "correcao_monetaria_indice", "juros", "periodicidade")
+    )
+    if tem_condicao_geral or geral.descricao:
+        st.markdown("#### Condições Gerais do Plano (válidas para todas as classes)")
+        st.caption(
+            "Regras declaradas uma única vez no Plano, aplicáveis a todo o Quadro Geral de Credores — "
+            "já refletidas abaixo em cada classe que não tem uma condição específica própria."
+        )
+        if geral.descricao:
+            st.info(geral.descricao)
+        linhas_gerais = [
+            {"Condição": "Deságio", "Valor": geral.desagio},
+            {"Condição": "Carência", "Valor": geral.carencia},
+            {"Condição": "Correção Monetária", "Valor": geral.correcao_monetaria_indice},
+            {"Condição": "Juros", "Valor": geral.juros},
+            {"Condição": "Periodicidade", "Valor": geral.periodicidade},
+        ]
+        st.table(pd.DataFrame(linhas_gerais))
+        if geral.trechos_localizados:
+            with st.expander("Trechos das condições gerais no Plano (auditoria)"):
+                st.table(
+                    pd.DataFrame(
+                        [{"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto} for t in geral.trechos_localizados]
+                    )
+                )
+
+    st.markdown("#### Condições por Classe (já mescladas com as condições gerais)")
     st.caption("Confira o resumo por classe abaixo — os campos da classe selecionada ficam editáveis mais adiante.")
     linhas = []
     for classe in CLASSES_RJ_PADRAO:
