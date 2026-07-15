@@ -246,3 +246,129 @@ def calcular_precificacao_classe(parametros: ParametrosCalculoClasse) -> Resulta
         memoria_calculo=memoria,
         metodologia_validada=False,
     )
+
+
+@dataclass
+class LinhaFluxoInformado:
+    """Uma linha de uma projeção de fluxo de pagamentos já pronta no Plano de
+    RJ (ver `src.models_precificacao.ProjecaoFluxoAnualClasse`) — o valor já
+    é o fluxo final a receber naquele período, não algo a recalcular."""
+
+    data: date
+    descricao: str
+    valor: Decimal
+
+
+@dataclass
+class ParametrosCalculoClasseComProjecao:
+    """Parâmetros para calcular o VPL de uma classe a partir de uma projeção
+    de fluxo já pronta no Plano de RJ, em vez de gerar um cronograma
+    Price/SAC — usado quando o próprio documento já traz uma tabela de
+    "Valor a Pagar" por período. Só a descapitalização linha a linha
+    (mesma fórmula VP_t de `calcular_precificacao_classe`) é aplicada.
+    """
+
+    classe: str
+    valor_nominal_credito: Decimal  # Crédito Original (C0)
+    linhas: list[LinhaFluxoInformado]  # em ordem cronológica
+    periodicidade: Periodicidade  # só para o casamento de período da taxa de desconto
+    taxa_desconto_anual: Decimal
+    origem_taxa_desconto: str
+    data_taxa_desconto: date | None
+    condicoes: CondicoesPagamentoClasse
+
+
+def calcular_precificacao_classe_com_projecao(
+    parametros: ParametrosCalculoClasseComProjecao,
+) -> ResultadoPrecificacaoClasse:
+    """Calcula o VPL de uma classe a partir de uma projeção de fluxo já
+    pronta no Plano de RJ — cada linha já é o valor final a receber naquele
+    período (pós-deságio, já calculado pelo próprio Plano); não há
+    cronograma a gerar, só a descapitalização VP_t = Valor / (1+i)^t de cada
+    linha informada, na mesma convenção de `calcular_precificacao_classe`.
+    """
+    if not parametros.linhas:
+        raise ValueError("A projeção de fluxo não tem nenhuma linha.")
+    if parametros.valor_nominal_credito <= 0:
+        raise ValueError("O valor nominal do crédito deve ser maior que zero.")
+
+    memoria: list[str] = [
+        f"Crédito Original (C0) = {formatar_moeda(float(parametros.valor_nominal_credito))}. Fluxo utilizado: "
+        "projeção de pagamentos já pronta, extraída diretamente do Plano de Recuperação Judicial (não gerada "
+        "por cronograma Price/SAC) — os valores de cada período já são o fluxo final a receber."
+    ]
+
+    taxa_desconto_periodo = converter_taxa(
+        parametros.taxa_desconto_anual, Periodicidade.ANUAL, parametros.periodicidade, RegimeJuros.COMPOSTO
+    )
+    memoria.append(
+        f"Casamento de período: taxa de desconto ({formatar_percentual(float(parametros.taxa_desconto_anual))} "
+        f"a.a., {parametros.origem_taxa_desconto}) convertida para "
+        f"{formatar_percentual(float(taxa_desconto_periodo))} por {parametros.periodicidade.value.lower()}."
+    )
+
+    fluxo: list[ParcelaPrecificacao] = []
+    for numero, linha in enumerate(parametros.linhas, start=1):
+        valor_descontado = arredondar(linha.valor / ((Decimal(1) + taxa_desconto_periodo) ** numero))
+        fluxo.append(
+            ParcelaPrecificacao(
+                numero=numero,
+                data=linha.data,
+                descricao=linha.descricao,
+                carencia=False,
+                saldo_inicial=Decimal(0),
+                juros_periodo=Decimal(0),
+                amortizacao=linha.valor,
+                valor_nominal=linha.valor,
+                saldo_final=Decimal(0),
+                valor_descontado=valor_descontado,
+            )
+        )
+
+    fluxo_nominal_total = arredondar(sum((item.valor_nominal for item in fluxo), Decimal(0)))
+    vp_total = arredondar(sum((item.valor_descontado for item in fluxo), Decimal(0)))
+    vpl_comercial = arredondar(vp_total - parametros.valor_nominal_credito)
+    percentual_recuperacao = (
+        (vp_total / parametros.valor_nominal_credito) * 100 if parametros.valor_nominal_credito != 0 else Decimal(0)
+    )
+
+    memoria.append(
+        "Fluxo Nominal Total (soma de todos os pagamentos da projeção) = "
+        f"{formatar_moeda(float(fluxo_nominal_total))}."
+    )
+    memoria.append(
+        "Valor Presente do Fluxo (VP Total) = soma do VP de cada linha, "
+        f"VP_t = Valor da linha / (1 + {formatar_percentual(float(taxa_desconto_periodo))})^t "
+        f"= {formatar_moeda(float(vp_total))}."
+    )
+    memoria.append(
+        f"VPL Real Comercial = VP Total − Crédito Original = {formatar_moeda(float(vp_total))} − "
+        f"{formatar_moeda(float(parametros.valor_nominal_credito))} = {formatar_moeda(float(vpl_comercial))}."
+    )
+    memoria.append(
+        "Percentual de Recuperação Efetiva = VP Total / Crédito Original = "
+        f"{formatar_percentual(float(percentual_recuperacao) / 100)}."
+    )
+    memoria.append(
+        "*** Fluxo utilizado exatamente como extraído do Plano de Recuperação Judicial (projeção pronta) — "
+        "revise os valores de cada linha antes de confiar no resultado; a extração automática pode ter "
+        "imprecisões em documentos com diagramação incomum. ***"
+    )
+
+    return ResultadoPrecificacaoClasse(
+        classe=parametros.classe,
+        valor_nominal_credito=parametros.valor_nominal_credito,
+        valor_atualizado_credito=None,
+        condicoes=parametros.condicoes,
+        taxa_desconto_anual=parametros.taxa_desconto_anual,
+        taxa_desconto_periodo=taxa_desconto_periodo,
+        origem_taxa_desconto=parametros.origem_taxa_desconto,
+        data_taxa_desconto=parametros.data_taxa_desconto,
+        fluxo=fluxo,
+        fluxo_nominal_total=fluxo_nominal_total,
+        vp_total=vp_total,
+        vpl_comercial=vpl_comercial,
+        percentual_recuperacao_efetiva=percentual_recuperacao,
+        memoria_calculo=memoria,
+        metodologia_validada=False,
+    )

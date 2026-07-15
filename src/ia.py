@@ -30,7 +30,14 @@ from src.models_peticao_inicial import (
     TrechoFiscal,
 )
 from src.models_analise_documentos import AnaliseDocumento, ItemComContexto
-from src.models_precificacao import CondicoesGerais, CondicoesPagamentoClasse, ExtracaoPlanoPorClasse, TrechoPlano
+from src.models_precificacao import (
+    CondicoesGerais,
+    CondicoesPagamentoClasse,
+    ExtracaoPlanoPorClasse,
+    LinhaProjecaoFluxoAnual,
+    ProjecaoFluxoAnualClasse,
+    TrechoPlano,
+)
 
 logger = configurar_logging()
 
@@ -597,10 +604,15 @@ def _esquema_json_plano_por_classe() -> str:
         '"correcao_monetaria_indice": "string", "juros": "string", "periodicidade": "string", '
         '"trechos_localizados": [{"pagina": "string", "trecho": "string", "contexto": "string"}]}'
     )
+    campos_projecao = (
+        '{"linhas": [{"periodo": "string", "valor": "string"}], '
+        '"trechos_localizados": [{"pagina": "string", "trecho": "string", "contexto": "string"}]}'
+    )
     linhas_classe = ",\n    ".join(f'"{classe}": {campos_classe}' for classe in CLASSES_RJ_PADRAO)
+    linhas_projecao = ",\n    ".join(f'"{classe}": {campos_projecao}' for classe in CLASSES_RJ_PADRAO)
     return (
         "{\n  \"condicoes_gerais\": " + campos_gerais + ",\n  \"condicoes_por_classe\": {\n    "
-        + linhas_classe + "\n  }\n}"
+        + linhas_classe + "\n  },\n  \"projecoes_fluxo_anual\": {\n    " + linhas_projecao + "\n  }\n}"
     )
 
 
@@ -635,7 +647,22 @@ def _prompt_mapa_plano_classe(bloco_texto: str, indice: int, total: int) -> str:
         "teto/limite/conversão para outra classe (ex.: 'o que exceder será convertido para a Classe "
         "III'): registre a cláusula de teto/conversão como está, mas não misture o deságio, prazo ou "
         "parcelas da classe de destino com os da classe de origem. Cada trecho vai apenas na classe "
-        "(ou em 'CONDIÇÕES GERAIS') a que ele realmente se refere no documento. Para cada informação "
+        "(ou em 'CONDIÇÕES GERAIS') a que ele realmente se refere no documento. "
+        "IMPORTANTE sobre projeção de fluxo pronta: alguns planos trazem, além das regras de "
+        "deságio/carência/parcelas, uma TABELA JÁ PRONTA com o valor a pagar por período (rótulos como "
+        "'Projeção de Fluxo Anual de Pagamentos', 'Cronograma de Pagamentos' ou 'Valor a Pagar', "
+        "normalmente com colunas Período/Ano e uma coluna por classe, terminando numa coluna 'Total'). "
+        "Como o texto foi extraído por posição (não é uma tabela com bordas), uma linha pode ter MENOS "
+        "valores do que colunas de classe existem — isso normalmente significa que uma classe não teve "
+        "pagamento naquele período (não que os valores escorregaram de coluna). Quando encontrar uma "
+        "tabela assim NESTE BLOCO, transcreva sob o rótulo 'PROJEÇÃO DE FLUXO — <primeira e última "
+        "linha visíveis>' a linha do CABEÇALHO exatamente como aparece (com todos os nomes de coluna, "
+        "na ordem) e, para cada linha de dados, TODOS os valores numéricos encontrados naquela linha, na "
+        "ordem em que aparecem da esquerda para a direita, terminando sempre pelo valor da coluna "
+        "'Total' — não tente adivinhar a qual classe cada valor pertence aqui (isso é decidido depois, "
+        "na consolidação final, cruzando com o cabeçalho e as regras de cada classe); apenas transcreva "
+        "período + lista de valores, na ordem em que aparecem, exatamente como estão, sem recalcular ou "
+        "arredondar. Para cada informação "
         "relevante, transcreva o número da "
         "página e o trecho literal (verbatim) — não resuma, não interprete, e não conclua 'não "
         "localizado' aqui (essa decisão só é tomada depois de ver todos os blocos). Se nada aparecer "
@@ -681,6 +708,34 @@ def _prompt_reducao_plano_classe(arquivo_nome: str, texto_fonte: str) -> str:
         "a periodicidade ou qualquer outro número da classe referenciada/de destino da conversão para "
         "os campos da classe de origem — os campos numéricos da classe de origem devem refletir "
         "SOMENTE a cláusula própria dela.\n\n"
+        "'projecoes_fluxo_anual' é para o caso (não obrigatório — só existe quando o documento "
+        "realmente traz isso) de o Plano trazer uma TABELA JÁ PRONTA com o valor a pagar por período "
+        "para cada classe (rótulos como 'Projeção de Fluxo Anual de Pagamentos', 'Cronograma de "
+        "Pagamentos' ou 'Valor a Pagar', normalmente com uma coluna Período/Ano e uma coluna por "
+        "classe, terminando numa coluna 'Total'). "
+        "IMPORTANTE sobre colunas vazias: como o texto foi extraído por posição (não é uma tabela real "
+        "com bordas), uma linha de dados pode ter MENOS valores numéricos do que colunas de classe no "
+        "cabeçalho — isso significa que uma ou mais classes NÃO tiveram pagamento naquele período (valor "
+        "zero), não que os valores 'escorregaram' para a esquerda. Nunca assuma alinhamento da esquerda "
+        "para a direita cegamente. Para descobrir qual coluna está vazia numa linha com menos valores do "
+        "que o esperado: (a) a coluna 'Total' é sempre o ÚLTIMO valor da linha — alinhe as demais colunas "
+        "de trás para frente a partir do Total; (b) use as condições de pagamento de cada classe "
+        "(deságio/carência/parcelas, já descritas em outra parte do documento) como pista — uma classe "
+        "cujos pagamentos terminam cedo (poucas parcelas, prazo curto) mostra valores só nas primeiras "
+        "linhas da tabela e fica com a coluna vazia (zero) nas linhas seguintes; (c) confira que a SOMA "
+        "das linhas de uma classe bate com o total daquela classe, se o documento informar esse total "
+        "separadamente. Quando concluir que uma classe não teve pagamento num período, registre "
+        "'valor': '0,00' para ela naquela linha (nunca pule a linha nem desloque os valores das outras "
+        "classes para preencher a lacuna). Quando existir essa tabela, preencha, para cada classe que "
+        "aparece nela, a lista "
+        "'linhas' com um item por período/linha da tabela, no formato {'periodo': <rótulo da linha, "
+        "ex.: 'Ano 01'>, 'valor': <valor exatamente como aparece, ex.: '180.421,63'>} — na mesma ordem "
+        "cronológica da tabela, sem pular nem inventar linhas, e sem recalcular ou arredondar nenhum "
+        "valor. Isso é DIFERENTE das condições de 'condicoes_por_classe': ali vão as REGRAS (deságio, "
+        "carência, parcelas); aqui vai o RESULTADO já pronto que o próprio Plano calculou, quando "
+        "existir. Se uma classe não aparecer numa tabela desse tipo (ou se o documento não tiver "
+        "nenhuma tabela assim), deixe 'linhas' como lista vazia ([]) para ela — nunca invente uma "
+        "projeção que não esteja no texto.\n\n"
         "Regras gerais: use exatamente as 4 chaves de classe indicadas no esquema, mesmo que uma "
         f"classe não tenha nenhuma condição específica localizada (nesse caso, escreva \"{NAO_LOCALIZADO}\" "
         "em todos os campos de texto dessa classe e deixe 'trechos_localizados' vazio, []). Nunca "
@@ -804,11 +859,38 @@ def _construir_extracao_plano_classe(dados: dict, arquivo_nome: str, avisos: lis
         )
         condicoes_por_classe[classe] = _mesclar_com_geral(condicoes_classe, condicoes_gerais)
 
+    projecoes_dados = dados.get("projecoes_fluxo_anual")
+    if not isinstance(projecoes_dados, dict):
+        projecoes_dados = {}
+
+    projecoes_fluxo_anual: dict[str, ProjecaoFluxoAnualClasse] = {}
+    for classe in CLASSES_RJ_PADRAO:
+        dados_projecao = projecoes_dados.get(classe)
+        if not isinstance(dados_projecao, dict):
+            dados_projecao = {}
+
+        linhas: list[LinhaProjecaoFluxoAnual] = []
+        for item in dados_projecao.get("linhas") or []:
+            try:
+                periodo = str(item["periodo"]).strip()
+                valor = str(item["valor"]).strip()
+            except (KeyError, TypeError, AttributeError):
+                continue
+            if periodo and valor:
+                linhas.append(LinhaProjecaoFluxoAnual(periodo=periodo, valor=valor))
+
+        projecoes_fluxo_anual[classe] = ProjecaoFluxoAnualClasse(
+            classe=classe,
+            linhas=linhas,
+            trechos_localizados=_trechos_de(dados_projecao),
+        )
+
     return ExtracaoPlanoPorClasse(
         arquivo_nome=arquivo_nome,
         data_analise=date.today(),
         condicoes_gerais=condicoes_gerais,
         condicoes_por_classe=condicoes_por_classe,
+        projecoes_fluxo_anual=projecoes_fluxo_anual,
         avisos=avisos,
     )
 

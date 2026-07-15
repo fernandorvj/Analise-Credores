@@ -68,17 +68,46 @@ class CondicoesGerais:
 
 
 @dataclass
+class LinhaProjecaoFluxoAnual:
+    """Uma linha (um período) de uma tabela de projeção de fluxo de
+    pagamentos já pronta no Plano de RJ — texto extraído literalmente
+    (nunca calculado pela IA); a conversão para número é feita em Python,
+    depois de o usuário revisar/editar."""
+
+    periodo: str  # ex.: "Ano 01", "Ano 02"
+    valor: str  # valor bruto extraído, ex.: "180.421,63"
+
+
+@dataclass
+class ProjecaoFluxoAnualClasse:
+    """Projeção de fluxo de pagamentos já pronta no Plano de RJ para uma
+    classe específica — só existe quando o documento traz uma tabela desse
+    tipo (ex.: "Projeção de Fluxo Anual de Pagamentos"), como alternativa às
+    condições de deságio/carência/parcelas de `CondicoesPagamentoClasse`
+    (ver `src/calculadora/precificacao_motor.py:calcular_precificacao_classe_com_projecao`,
+    que usa essas linhas diretamente como fluxo, sem gerar cronograma Price).
+    """
+
+    classe: str
+    linhas: list[LinhaProjecaoFluxoAnual] = field(default_factory=list)
+    trechos_localizados: list[TrechoPlano] = field(default_factory=list)
+
+
+@dataclass
 class ExtracaoPlanoPorClasse:
     """Resultado da extração via IA do Plano de RJ — condições gerais (se
     houver) mais as condições de pagamento organizadas pelas 4 classes
     padrão (`config.CLASSES_RJ_PADRAO`), já mescladas (específico da classe
-    sobrepõe o geral). Só interpretação do texto, nunca cálculo.
+    sobrepõe o geral), e a projeção de fluxo anual por classe, quando o
+    documento já trouxer uma tabela pronta desse tipo. Só interpretação do
+    texto, nunca cálculo.
     """
 
     arquivo_nome: str
     data_analise: date
     condicoes_gerais: CondicoesGerais = field(default_factory=CondicoesGerais)
     condicoes_por_classe: dict[str, CondicoesPagamentoClasse] = field(default_factory=dict)
+    projecoes_fluxo_anual: dict[str, ProjecaoFluxoAnualClasse] = field(default_factory=dict)
     avisos: list[str] = field(default_factory=list)
 
 

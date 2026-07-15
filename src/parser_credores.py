@@ -596,15 +596,33 @@ def parsear_credores(paginas: list[PaginaExtraida], arquivo_nome: str) -> Result
 #
 # Editais de Recuperação Judicial publicados em plataformas como o DJEN/
 # Plataforma Nacional de Editais trazem a relação de credores embutida em um
-# parágrafo de texto corrido, no formato:
-#   "CLASSE III - QUIROGRAFÁRIO: NOME - R$ VALOR; NOME - R$ VALOR; ... ."
-# Não há CPF/CNPJ nesse formato — só nome, valor e classe. Esses editais
-# costumam ser PDFs digitais (não escaneados), então o texto já vem limpo do
-# `leitor_pdf.py` — este é só mais um formato de página de texto corrido, como
+# parágrafo de texto corrido. Duas variantes são suportadas:
+#   (a) "CLASSE III - QUIROGRAFÁRIO: NOME - R$ VALOR; NOME - R$ VALOR; ... ."
+#   (b) "CLASSE III CRÉDITOS QUIROGRAFÁRIOS NOME R$ VALOR; NOME R$ VALOR; ..."
+# — a variante (b) (comum em editais publicados no Diário da Justiça
+# Eletrônico do TJSP, art. 7º §2º da Lei 11.101/05) não usa dois-pontos nem
+# hífen; o rótulo da classe vem em CAIXA ALTA logo após "CLASSE X" e o
+# primeiro credor já em Title Case — isso marca onde o rótulo termina e a
+# lista de credores começa. Não há CPF/CNPJ em nenhuma das duas variantes —
+# só nome, valor e classe. Esses editais costumam ser PDFs digitais (não
+# escaneados) ou, quando escaneados, já passaram pelo OCR do `leitor_pdf.py`
+# — este é só mais um formato de página de texto corrido, como
 # `_extrair_de_texto` e `_extrair_de_blocos`.
 
 _RE_CLASSE_MARCADOR_EDITAL = re.compile(r"CLASSE\s+[IVX]+[^:]{0,40}:", re.IGNORECASE)
-_RE_ITEM_EDITAL = re.compile(r"^(.+?)\s*-\s*R\$\s*([\d.,]+)")
+# Variante sem dois-pontos: consome "CLASSE X" seguido de zero ou mais
+# palavras em CAIXA ALTA (o rótulo da classe) e para assim que encontrar uma
+# palavra que não seja toda maiúscula — sinal de que começou o nome (Title
+# Case) do primeiro credor. Só usada como fallback, quando a variante com
+# dois-pontos não encontra nenhum marcador no texto.
+_RE_CLASSE_MARCADOR_EDITAL_SEM_DOISPONTOS = re.compile(
+    r"CLASSE\s+[IVX]+\s+(?:[A-ZÀ-ÜÇ][A-ZÀ-ÜÇ/]*\s+){0,10}"
+)
+# Valor exige começar E terminar em dígito (como `_RE_VALOR_MONETARIO` acima)
+# — evita capturar pontuação de fechamento de frase (ex.: uma vírgula antes
+# de "TOTAL DE CRÉDITOS...") junto do valor. Hífen entre nome e "R$" é
+# opcional, para cobrir as duas variantes.
+_RE_ITEM_EDITAL = re.compile(r"^(.+?)\s*-?\s*R\$\s*(\d[\d.,]*\d)")
 
 
 def _itens_de_trecho(trecho: str, classe: str, numero_pagina: int, proximo_id: int) -> tuple[list[Credor], str]:
@@ -674,6 +692,8 @@ def _extrair_de_edital(
     """
     texto = (fragmento_pendente + " " + pagina.texto) if fragmento_pendente else pagina.texto
     marcadores = list(_RE_CLASSE_MARCADOR_EDITAL.finditer(texto))
+    if not marcadores:
+        marcadores = list(_RE_CLASSE_MARCADOR_EDITAL_SEM_DOISPONTOS.finditer(texto))
     credores: list[Credor] = []
     novo_fragmento_pendente = ""
 

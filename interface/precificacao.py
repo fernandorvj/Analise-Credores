@@ -27,15 +27,27 @@ from interface import layout
 from interface.calculadora.componentes import aplicar_tema_escuro_grafico, campo_moeda, container_grafico, renderizar_kpis
 from interface.icones import icone
 from src import ia, leitor_pdf
+from src.calculadora.amortizacao import adicionar_periodos
 from src.calculadora.indices import obter_cdi_bacen, obter_igpm_12m_bacen, obter_ipca_12m_bacen, obter_tr_bacen
 from src.calculadora.models import Periodicidade
-from src.calculadora.precificacao_motor import ParametrosCalculoClasse, calcular_precificacao_classe
+from src.calculadora.precificacao_motor import (
+    LinhaFluxoInformado,
+    ParametrosCalculoClasse,
+    ParametrosCalculoClasseComProjecao,
+    calcular_precificacao_classe,
+    calcular_precificacao_classe_com_projecao,
+)
 from src.calculadora.selic import ORIGEM_MANUAL, obter_selic_bacen
 from src.exportar_excel_precificacao import exportar_excel_precificacao
 from src.exportar_word_precificacao import exportar_word_precificacao
 from src.models_peticao_inicial import NAO_LOCALIZADO
-from src.models_precificacao import CondicoesPagamentoClasse, ExtracaoPlanoPorClasse, ResultadoPrecificacaoClasse
-from src.utils import formatar_moeda, formatar_percentual
+from src.models_precificacao import (
+    CondicoesPagamentoClasse,
+    ExtracaoPlanoPorClasse,
+    ProjecaoFluxoAnualClasse,
+    ResultadoPrecificacaoClasse,
+)
+from src.utils import formatar_moeda, formatar_percentual, parse_valor_brl
 
 _FASES_PDF = ["Lendo PDF", "Extraindo texto", "Organizando documento", "Consultando IA", "Extraindo condições"]
 _FASES_TEXTO = ["Organizando texto", "Consultando IA", "Extraindo condições"]
@@ -68,7 +80,7 @@ def _processar_pdf(arquivo) -> ExtracaoPlanoPorClasse | None:
             st.write(f"✓ {_FASES_PDF[indice]}")
             barra.progress((indice + 1) / len(_FASES_PDF))
 
-        paginas = leitor_pdf.ler_pdf(caminho_pdf)
+        paginas = leitor_pdf.ler_pdf_robusto(caminho_pdf)
         texto = "\n\n".join(f"--- Página {p.numero} ---\n{p.texto}" for p in paginas)
         _concluir_fase(0)
         _concluir_fase(1)
@@ -160,6 +172,7 @@ def _renderizar_quadro_geral(extracao: ExtracaoPlanoPorClasse) -> None:
     linhas = []
     for classe in CLASSES_RJ_PADRAO:
         c = extracao.condicoes_por_classe.get(classe) or CondicoesPagamentoClasse(classe=classe)
+        projecao = extracao.projecoes_fluxo_anual.get(classe)
         linhas.append(
             {
                 "Classe": classe,
@@ -171,6 +184,7 @@ def _renderizar_quadro_geral(extracao: ExtracaoPlanoPorClasse) -> None:
                 "Periodicidade": c.periodicidade,
                 "1ª Parcela": c.data_primeira_parcela,
                 "Balão": c.parcela_balao,
+                "Projeção Pronta": f"Sim ({len(projecao.linhas)} linhas)" if projecao and projecao.linhas else "Não",
             }
         )
     st.table(pd.DataFrame(linhas))
@@ -390,6 +404,68 @@ def _formulario_condicoes_classe(condicoes: CondicoesPagamentoClasse, sufixo_cha
     }
 
 
+def _formulario_projecao_fluxo(
+    projecao: ProjecaoFluxoAnualClasse, sufixo_chave: str
+) -> tuple[list[LinhaFluxoInformado], Periodicidade]:
+    """Formulário editável com a projeção de fluxo já pronta extraída do
+    Plano — cada linha já é o valor final a receber naquele período (não
+    gerado por cronograma Price/SAC). O usuário confere/corrige os valores
+    antes do cálculo: a extração automática de tabelas pode perder precisão
+    em documentos com diagramação incomum (proteções anticópia, watermarks).
+    """
+    st.markdown(f"#### Projeção de Fluxo Extraída do Plano — {projecao.classe}")
+    st.caption(
+        "Confira e corrija os valores abaixo se necessário antes de calcular — a extração automática de "
+        "tabelas pode perder precisão em documentos com diagramação incomum."
+    )
+    if projecao.trechos_localizados:
+        with st.expander("Trechos localizados no Plano (auditoria)"):
+            st.table(
+                pd.DataFrame(
+                    [{"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto} for t in projecao.trechos_localizados]
+                )
+            )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        data_primeira_linha = st.date_input(
+            "Data da 1ª linha da projeção", value=date.today(), key=f"prec_projecao_data_{sufixo_chave}"
+        )
+    with col2:
+        periodicidades = list(Periodicidade)
+        periodicidade = st.selectbox(
+            "Periodicidade das linhas",
+            periodicidades,
+            index=periodicidades.index(Periodicidade.ANUAL),
+            format_func=lambda p: p.value,
+            key=f"prec_projecao_periodicidade_{sufixo_chave}",
+        )
+
+    df_linhas = pd.DataFrame(
+        [{"Período": linha.periodo, "Valor (R$)": parse_valor_brl(linha.valor) or 0.0} for linha in projecao.linhas]
+    )
+    df_editado = st.data_editor(
+        df_linhas,
+        column_config={
+            "Período": st.column_config.TextColumn(disabled=True),
+            "Valor (R$)": st.column_config.NumberColumn(format="R$ %.2f", min_value=0.0, step=0.01),
+        },
+        hide_index=True,
+        width="stretch",
+        key=f"prec_projecao_editor_{sufixo_chave}",
+    )
+
+    linhas_calculo = [
+        LinhaFluxoInformado(
+            data=adicionar_periodos(data_primeira_linha, numero, periodicidade),
+            descricao=str(linha["Período"]),
+            valor=Decimal(str(linha["Valor (R$)"])),
+        )
+        for numero, linha in enumerate(df_editado.to_dict(orient="records"))
+    ]
+    return linhas_calculo, periodicidade
+
+
 # --- Etapa 5: gráficos e resultado -------------------------------------------
 
 
@@ -599,10 +675,29 @@ def renderizar_precificacao() -> None:
         (extracao.condicoes_por_classe.get(classe_escolhida) if extracao else None)
         or CondicoesPagamentoClasse(classe=classe_escolhida)
     )
+    projecao_classe = extracao.projecoes_fluxo_anual.get(classe_escolhida) if extracao else None
+    tem_projecao = bool(projecao_classe and projecao_classe.linhas)
     sufixo_chave = f"{classe_escolhida}_{id(extracao) if extracao else 0}"
 
+    usar_projecao = False
+    if tem_projecao:
+        usar_projecao = st.checkbox(
+            "Usar a projeção de fluxo já pronta no Plano (recomendado quando disponível)",
+            value=True,
+            key=f"prec_usar_projecao_{sufixo_chave}",
+            help=(
+                "O Plano já traz uma tabela pronta de valores a pagar por período para esta classe — "
+                "usar essa projeção é mais fiel ao Plano do que gerar um cronograma Price a partir de "
+                "deságio/carência/parcelas."
+            ),
+        )
+
     st.divider()
-    dados_formulario = _formulario_condicoes_classe(condicoes_classe, sufixo_chave)
+    if usar_projecao:
+        linhas_projecao, periodicidade_projecao = _formulario_projecao_fluxo(projecao_classe, sufixo_chave)
+        dados_formulario = None
+    else:
+        dados_formulario = _formulario_condicoes_classe(condicoes_classe, sufixo_chave)
 
     st.divider()
     st.markdown("#### Taxa de Desconto")
@@ -612,35 +707,48 @@ def renderizar_precificacao() -> None:
 
     if st.button("🧮 Calcular Precificação", type="primary", icon=icone("precificacao"), key="prec_btn_calcular"):
         try:
-            juros_periodo = dados_formulario["juros"]
-            if dados_formulario["periodicidade_taxa_juros"] != dados_formulario["periodicidade"]:
-                from src.calculadora.amortizacao import converter_taxa
-                from src.calculadora.models import RegimeJuros
-
-                juros_periodo = converter_taxa(
-                    dados_formulario["juros"], dados_formulario["periodicidade_taxa_juros"], dados_formulario["periodicidade"], RegimeJuros.COMPOSTO
+            if usar_projecao:
+                parametros_projecao = ParametrosCalculoClasseComProjecao(
+                    classe=classe_escolhida,
+                    valor_nominal_credito=Decimal(str(valor_nominal_credito)),
+                    linhas=linhas_projecao,
+                    periodicidade=periodicidade_projecao,
+                    taxa_desconto_anual=taxa_desconto_anual,
+                    origem_taxa_desconto=origem_taxa_desconto,
+                    data_taxa_desconto=data_taxa_desconto,
+                    condicoes=condicoes_classe,
                 )
+                resultado = calcular_precificacao_classe_com_projecao(parametros_projecao)
+            else:
+                juros_periodo = dados_formulario["juros"]
+                if dados_formulario["periodicidade_taxa_juros"] != dados_formulario["periodicidade"]:
+                    from src.calculadora.amortizacao import converter_taxa
+                    from src.calculadora.models import RegimeJuros
 
-            parametros = ParametrosCalculoClasse(
-                classe=classe_escolhida,
-                valor_nominal_credito=Decimal(str(valor_nominal_credito)),
-                desagio=dados_formulario["desagio"],
-                carencia_periodos=dados_formulario["carencia_periodos"],
-                correcao_indice=dados_formulario["correcao_indice"],
-                correcao_taxa_anual=dados_formulario["correcao_taxa_anual"],
-                juros=juros_periodo,
-                numero_parcelas=dados_formulario["numero_parcelas"],
-                periodicidade=dados_formulario["periodicidade"],
-                data_primeira_parcela=dados_formulario["data_primeira_parcela"],
-                data_base=date.today(),
-                valor_balao=dados_formulario["valor_balao"],
-                periodo_balao=dados_formulario["periodo_balao"],
-                taxa_desconto_anual=taxa_desconto_anual,
-                origem_taxa_desconto=origem_taxa_desconto,
-                data_taxa_desconto=data_taxa_desconto,
-                condicoes=condicoes_classe,
-            )
-            resultado = calcular_precificacao_classe(parametros)
+                    juros_periodo = converter_taxa(
+                        dados_formulario["juros"], dados_formulario["periodicidade_taxa_juros"], dados_formulario["periodicidade"], RegimeJuros.COMPOSTO
+                    )
+
+                parametros = ParametrosCalculoClasse(
+                    classe=classe_escolhida,
+                    valor_nominal_credito=Decimal(str(valor_nominal_credito)),
+                    desagio=dados_formulario["desagio"],
+                    carencia_periodos=dados_formulario["carencia_periodos"],
+                    correcao_indice=dados_formulario["correcao_indice"],
+                    correcao_taxa_anual=dados_formulario["correcao_taxa_anual"],
+                    juros=juros_periodo,
+                    numero_parcelas=dados_formulario["numero_parcelas"],
+                    periodicidade=dados_formulario["periodicidade"],
+                    data_primeira_parcela=dados_formulario["data_primeira_parcela"],
+                    data_base=date.today(),
+                    valor_balao=dados_formulario["valor_balao"],
+                    periodo_balao=dados_formulario["periodo_balao"],
+                    taxa_desconto_anual=taxa_desconto_anual,
+                    origem_taxa_desconto=origem_taxa_desconto,
+                    data_taxa_desconto=data_taxa_desconto,
+                    condicoes=condicoes_classe,
+                )
+                resultado = calcular_precificacao_classe(parametros)
             st.session_state["prec_resultado"] = resultado
             st.session_state.pop("prec_export_xlsx", None)
             st.session_state.pop("prec_export_docx", None)
