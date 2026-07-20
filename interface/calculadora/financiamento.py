@@ -113,10 +113,14 @@ def _formulario() -> ParametrosFinanciamento | None:
         col1, col2 = st.columns(2)
         with col1:
             valor_financiado = campo_moeda(
-                "Valor Financiado (R$)", _numero_ou_padrao(sugestao.get("valor_financiado"), 100000.0)
+                "Valor Financiado (R$)",
+                _numero_ou_padrao(sugestao.get("valor_financiado"), 100000.0),
+                dentro_de_formulario=True,
             )
             valor_entrada = campo_moeda(
-                "Valor de Entrada (R$)", _numero_ou_padrao(sugestao.get("valor_entrada"), 0.0)
+                "Valor de Entrada (R$)",
+                _numero_ou_padrao(sugestao.get("valor_entrada"), 0.0),
+                dentro_de_formulario=True,
             )
             taxa_percentual = st.number_input(
                 "Taxa de Juros (%)", min_value=0.0, value=_numero_ou_padrao(sugestao.get("taxa_percentual"), 2.0), step=0.1

@@ -11,6 +11,7 @@ alterar nem depender de detalhes internos daquele módulo.
 
 from __future__ import annotations
 
+import inspect
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -22,7 +23,7 @@ from config import GRAFICO_SUPERFICIE_ESCURA
 from interface.icones import icone
 from src.calculadora.fluxo import novo_item
 from src.calculadora.models import Cenario, FluxoItem, TipoFluxoItem
-from src.utils import formatar_moeda
+from src.utils import formatar_moeda, parse_valor_brl
 
 
 def aplicar_tema_escuro_grafico(fig: go.Figure) -> go.Figure:
@@ -100,22 +101,69 @@ def editor_fluxo(fluxo: list[FluxoItem], key: str) -> list[FluxoItem]:
     return novo_fluxo
 
 
-def campo_moeda(label: str, valor_padrao: float, key: str | None = None, **kwargs) -> float:
-    """`st.number_input` para um valor monetário, com uma legenda logo abaixo
-    mostrando o valor já formatado no padrão brasileiro (ex.: "R$ 2.000.000,00").
+def campo_moeda(
+    label: str,
+    valor_padrao: float,
+    key: str | None = None,
+    dentro_de_formulario: bool = False,
+    **kwargs,
+) -> float:
+    """Campo de valor monetário como texto (não `st.number_input`) — sempre
+    mostra e aceita o formato brasileiro (ex.: "14.567.087,32").
 
-    O widget nativo do Streamlit não aplica máscara de milhar/decimal em
-    tempo real dentro do próprio campo (não há suporte a separadores
-    localizados no parâmetro `format`) — a legenda abaixo do campo é o jeito
-    confiável de sempre mostrar o valor em Real por extenso, sem deixar de
-    usar `number_input` (com seus incrementos/validação nativos) para a
-    entrada em si.
+    O `st.number_input` nativo só entende "." como separador decimal (é um
+    input numérico de navegador); colar um valor no formato brasileiro nele
+    (com ponto de milhar) corrompe o número silenciosamente (ex.:
+    "14.567.087,32" virava "14,56708732"). Este campo usa `parse_valor_brl`
+    (o mesmo parser já usado na extração de PDFs) para interpretar
+    corretamente o que foi digitado/colado — o valor numérico real fica em
+    `session_state`, o campo em si só guarda o texto exibido.
+
+    Fora de formulário, o texto é reformatado para o padrão BR assim que o
+    usuário sai do campo (`on_change`). `st.form` proíbe `on_change` em
+    qualquer widget que não seja o `form_submit_button` — quando
+    `dentro_de_formulario=True`, a reformatação ao vivo é pulada (o texto
+    fica exatamente como foi digitado/colado até o formulário ser reenviado),
+    mas o valor numérico interpretado continua correto de qualquer forma.
     """
-    kwargs.setdefault("min_value", 0.0)
-    kwargs.setdefault("step", 1000.0)
-    valor = st.number_input(label, value=valor_padrao, key=key, **kwargs)
-    st.caption(f"{icone('moeda')} {formatar_moeda(valor)}")
-    return valor
+    if key is None:
+        chamador = inspect.stack()[1]
+        key = f"campo_moeda_{chamador.filename}:{chamador.lineno}"
+    chave_texto = f"{key}_texto"
+    chave_valor = f"{key}_valor"
+    valor_minimo = kwargs.get("min_value", 0.0)
+    valor_maximo = kwargs.get("max_value")
+
+    if chave_valor not in st.session_state:
+        st.session_state[chave_valor] = valor_padrao
+        st.session_state[chave_texto] = formatar_moeda(valor_padrao).replace("R$ ", "")
+
+    def _aplicar_limites(valor: float) -> float:
+        if valor_minimo is not None:
+            valor = max(valor, valor_minimo)
+        if valor_maximo is not None:
+            valor = min(valor, valor_maximo)
+        return valor
+
+    if dentro_de_formulario:
+        texto = st.text_input(label, key=chave_texto, icon=icone("moeda"))
+        valor = parse_valor_brl(texto)
+        if valor is None:
+            valor = st.session_state[chave_valor]
+        valor = _aplicar_limites(valor)
+        st.session_state[chave_valor] = valor
+        return valor
+
+    def _sincronizar() -> None:
+        valor = parse_valor_brl(st.session_state[chave_texto])
+        if valor is None:
+            valor = st.session_state[chave_valor]
+        valor = _aplicar_limites(valor)
+        st.session_state[chave_valor] = valor
+        st.session_state[chave_texto] = formatar_moeda(valor).replace("R$ ", "")
+
+    st.text_input(label, key=chave_texto, on_change=_sincronizar, icon=icone("moeda"))
+    return st.session_state[chave_valor]
 
 
 def renderizar_kpis(pares: list[tuple[str, str]]) -> None:

@@ -347,6 +347,22 @@ h1, h2, h3, h4, h5,
     font-variant-numeric: tabular-nums;
 }
 
+/* O Streamlit trunca o valor do KPI com reticências por padrão (overflow:
+   hidden + white-space: nowrap direto no <p> interno) — sempre queremos o
+   valor completo visível, então liberamos quebra de linha em vez de cortar,
+   e reduzimos um pouco o tamanho da fonte para caber melhor em cards de 4
+   colunas. */
+[data-testid="stMetricValue"],
+[data-testid="stMetricValue"] [data-testid="stMarkdownContainer"],
+[data-testid="stMetricValue"] p {
+    overflow: visible !important;
+    white-space: normal !important;
+    text-overflow: unset !important;
+    word-break: break-word;
+    font-size: 1.7rem !important;
+    line-height: 1.25 !important;
+}
+
 /* ---------- Botões ---------- */
 
 .stButton > button, .stFormSubmitButton > button {

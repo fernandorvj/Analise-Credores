@@ -43,14 +43,14 @@ def _formulario_geracao() -> None:
     with st.form("form_balao"):
         col1, col2 = st.columns(2)
         with col1:
-            principal = campo_moeda("Valor Financiado (R$)", 100000.0)
-            valor_entrada = campo_moeda("Valor de Entrada (R$)", 10000.0)
+            principal = campo_moeda("Valor Financiado (R$)", 100000.0, dentro_de_formulario=True)
+            valor_entrada = campo_moeda("Valor de Entrada (R$)", 10000.0, dentro_de_formulario=True)
             data_inicial = st.date_input("Data Inicial", value=date.today(), key="balao_data_inicial")
             taxa_percentual = st.number_input("Taxa de Juros Mensal (%)", min_value=0.0, value=2.0, step=0.1)
         with col2:
             prazo = st.number_input("Prazo Total (nº de parcelas)", min_value=1, value=12, step=1, key="balao_prazo")
             intervalo_balao = st.number_input("Intervalo entre Balões (a cada N parcelas)", min_value=1, value=6, step=1)
-            valor_balao = campo_moeda("Valor de Cada Balão (R$)", 20000.0)
+            valor_balao = campo_moeda("Valor de Cada Balão (R$)", 20000.0, dentro_de_formulario=True)
 
         gerar = st.form_submit_button("Gerar Fluxo Automaticamente", type="primary", icon=icone("balao"))
 
@@ -94,8 +94,12 @@ def _formulario_percentual() -> None:
     with st.form("form_balao_percentual"):
         col1, col2 = st.columns(2)
         with col1:
-            principal = campo_moeda("Valor Financiado (R$)", 100000.0, key="balao_pct_principal")
-            valor_entrada = campo_moeda("Valor de Entrada (R$)", 0.0, key="balao_pct_entrada")
+            principal = campo_moeda(
+                "Valor Financiado (R$)", 100000.0, key="balao_pct_principal", dentro_de_formulario=True
+            )
+            valor_entrada = campo_moeda(
+                "Valor de Entrada (R$)", 0.0, key="balao_pct_entrada", dentro_de_formulario=True
+            )
             data_inicial = st.date_input("Data Inicial", value=date.today(), key="balao_pct_data_inicial")
         with col2:
             taxa_percentual = st.number_input(
