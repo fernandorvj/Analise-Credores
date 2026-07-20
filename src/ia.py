@@ -33,7 +33,9 @@ from src.models_analise_documentos import AnaliseDocumento, ItemComContexto
 from src.models_precificacao import (
     CondicoesGerais,
     CondicoesPagamentoClasse,
+    CronogramaAmortizacaoClasse,
     ExtracaoPlanoPorClasse,
+    LinhaCronogramaAmortizacao,
     LinhaProjecaoFluxoAnual,
     ProjecaoFluxoAnualClasse,
     TrechoPlano,
@@ -608,11 +610,19 @@ def _esquema_json_plano_por_classe() -> str:
         '{"linhas": [{"periodo": "string", "valor": "string"}], '
         '"trechos_localizados": [{"pagina": "string", "trecho": "string", "contexto": "string"}]}'
     )
+    campos_cronograma_percentual = (
+        '{"linhas": [{"periodo": "string", "percentual": "string"}], '
+        '"trechos_localizados": [{"pagina": "string", "trecho": "string", "contexto": "string"}]}'
+    )
     linhas_classe = ",\n    ".join(f'"{classe}": {campos_classe}' for classe in CLASSES_RJ_PADRAO)
     linhas_projecao = ",\n    ".join(f'"{classe}": {campos_projecao}' for classe in CLASSES_RJ_PADRAO)
+    linhas_cronograma_percentual = ",\n    ".join(
+        f'"{classe}": {campos_cronograma_percentual}' for classe in CLASSES_RJ_PADRAO
+    )
     return (
         "{\n  \"condicoes_gerais\": " + campos_gerais + ",\n  \"condicoes_por_classe\": {\n    "
-        + linhas_classe + "\n  },\n  \"projecoes_fluxo_anual\": {\n    " + linhas_projecao + "\n  }\n}"
+        + linhas_classe + "\n  },\n  \"projecoes_fluxo_anual\": {\n    " + linhas_projecao
+        + "\n  },\n  \"cronogramas_amortizacao\": {\n    " + linhas_cronograma_percentual + "\n  }\n}"
     )
 
 
@@ -662,7 +672,12 @@ def _prompt_mapa_plano_classe(bloco_texto: str, indice: int, total: int) -> str:
         "'Total' — não tente adivinhar a qual classe cada valor pertence aqui (isso é decidido depois, "
         "na consolidação final, cruzando com o cabeçalho e as regras de cada classe); apenas transcreva "
         "período + lista de valores, na ordem em que aparecem, exatamente como estão, sem recalcular ou "
-        "arredondar. Para cada informação "
+        "arredondar. "
+        "Também procure, separadamente, um 'Cronograma de Amortização' em PERCENTUAL do saldo por "
+        "período (ex.: 'Ano 1: 0,00%, Ano 2: 3,00%, ...') — diferente da tabela em R$ acima: aqui é só "
+        "percentual, sem valor calculado. Transcreva sob o rótulo 'CRONOGRAMA DE AMORTIZAÇÃO — <classe(s) "
+        "a que se aplica>' cada linha período+percentual encontrada, exatamente como aparece. Para cada "
+        "informação "
         "relevante, transcreva o número da "
         "página e o trecho literal (verbatim) — não resuma, não interprete, e não conclua 'não "
         "localizado' aqui (essa decisão só é tomada depois de ver todos os blocos). Se nada aparecer "
@@ -736,6 +751,20 @@ def _prompt_reducao_plano_classe(arquivo_nome: str, texto_fonte: str) -> str:
         "existir. Se uma classe não aparecer numa tabela desse tipo (ou se o documento não tiver "
         "nenhuma tabela assim), deixe 'linhas' como lista vazia ([]) para ela — nunca invente uma "
         "projeção que não esteja no texto.\n\n"
+        "'cronogramas_amortizacao' é para o caso (também não obrigatório) de o Plano trazer um "
+        "'Cronograma de Amortização' em PERCENTUAL do saldo por período (rótulos como 'Cronograma de "
+        "Amortização', '% Amort.' ou similar — ex.: 'Ano 1: 0,00%, Ano 2: 3,00%, ... Ano 20: 7,00%'), "
+        "em vez de (ou além de) uma tabela já em R$. Isso é DIFERENTE de 'projecoes_fluxo_anual': aqui "
+        "o Plano só diz QUANTO PERCENTUAL do saldo é amortizado em cada período, não o valor em R$ já "
+        "calculado — o valor em R$ de cada período é calculado depois, em Python, multiplicando o "
+        "percentual pelo saldo pós-deságio. Preencha, para cada classe que aparece nesse cronograma, a "
+        "lista 'linhas' com um item por período, no formato {'periodo': <rótulo da linha, ex.: 'Ano "
+        "01'>, 'percentual': <percentual exatamente como aparece, ex.: '3,00%'>} — na mesma ordem "
+        "cronológica, sem pular nem inventar linhas. Se um cronograma desse tipo vale para VÁRIAS "
+        "classes ao mesmo tempo (ex.: 'Cronograma de Amortização Classe III e IV', com uma única coluna "
+        "de percentual compartilhada), repita as mesmas linhas para cada classe citada — nunca invente "
+        "uma divisão entre elas que o texto não mostra. Se uma classe não aparecer em nenhum cronograma "
+        "desse tipo, deixe 'linhas' como lista vazia ([]) para ela.\n\n"
         "Regras gerais: use exatamente as 4 chaves de classe indicadas no esquema, mesmo que uma "
         f"classe não tenha nenhuma condição específica localizada (nesse caso, escreva \"{NAO_LOCALIZADO}\" "
         "em todos os campos de texto dessa classe e deixe 'trechos_localizados' vazio, []). Nunca "
@@ -885,12 +914,39 @@ def _construir_extracao_plano_classe(dados: dict, arquivo_nome: str, avisos: lis
             trechos_localizados=_trechos_de(dados_projecao),
         )
 
+    cronogramas_dados = dados.get("cronogramas_amortizacao")
+    if not isinstance(cronogramas_dados, dict):
+        cronogramas_dados = {}
+
+    cronogramas_amortizacao: dict[str, CronogramaAmortizacaoClasse] = {}
+    for classe in CLASSES_RJ_PADRAO:
+        dados_cronograma = cronogramas_dados.get(classe)
+        if not isinstance(dados_cronograma, dict):
+            dados_cronograma = {}
+
+        linhas_cronograma: list[LinhaCronogramaAmortizacao] = []
+        for item in dados_cronograma.get("linhas") or []:
+            try:
+                periodo = str(item["periodo"]).strip()
+                percentual = str(item["percentual"]).strip()
+            except (KeyError, TypeError, AttributeError):
+                continue
+            if periodo and percentual:
+                linhas_cronograma.append(LinhaCronogramaAmortizacao(periodo=periodo, percentual=percentual))
+
+        cronogramas_amortizacao[classe] = CronogramaAmortizacaoClasse(
+            classe=classe,
+            linhas=linhas_cronograma,
+            trechos_localizados=_trechos_de(dados_cronograma),
+        )
+
     return ExtracaoPlanoPorClasse(
         arquivo_nome=arquivo_nome,
         data_analise=date.today(),
         condicoes_gerais=condicoes_gerais,
         condicoes_por_classe=condicoes_por_classe,
         projecoes_fluxo_anual=projecoes_fluxo_anual,
+        cronogramas_amortizacao=cronogramas_amortizacao,
         avisos=avisos,
     )
 

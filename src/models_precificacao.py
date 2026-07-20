@@ -94,13 +94,43 @@ class ProjecaoFluxoAnualClasse:
 
 
 @dataclass
+class LinhaCronogramaAmortizacao:
+    """Uma linha (um período) de uma tabela de cronograma de amortização em
+    PERCENTUAL do saldo — texto extraído literalmente (nunca calculado pela
+    IA); a conversão para número e o cálculo do valor de cada parcela (%  ×
+    saldo pós-deságio) são feitos em Python, depois de o usuário revisar."""
+
+    periodo: str  # ex.: "Ano 01", "Ano 02"
+    percentual: str  # percentual bruto extraído, ex.: "5,00%"
+
+
+@dataclass
+class CronogramaAmortizacaoClasse:
+    """Cronograma de amortização em PERCENTUAL do saldo pós-deságio, por
+    período, para uma classe específica — alternativa a
+    `ProjecaoFluxoAnualClasse` para quando o Plano não traz valores em R$
+    já prontos, só o percentual de amortização de cada período (ex.: "Ano 1:
+    0%, Ano 2-6: 3%, Ano 7-10: 5%..."). Padrão comum em Planos de RJ, que
+    costumam trazer um "Cronograma de Amortização" separado da eventual
+    "Projeção de Fluxo" em R$ (ver
+    `src/calculadora/precificacao_motor.py:calcular_precificacao_classe_com_cronograma_percentual`,
+    que aplica cada percentual sobre o saldo pós-deságio para montar o
+    fluxo, sem gerar cronograma Price).
+    """
+
+    classe: str
+    linhas: list[LinhaCronogramaAmortizacao] = field(default_factory=list)
+    trechos_localizados: list[TrechoPlano] = field(default_factory=list)
+
+
+@dataclass
 class ExtracaoPlanoPorClasse:
     """Resultado da extração via IA do Plano de RJ — condições gerais (se
     houver) mais as condições de pagamento organizadas pelas 4 classes
     padrão (`config.CLASSES_RJ_PADRAO`), já mescladas (específico da classe
-    sobrepõe o geral), e a projeção de fluxo anual por classe, quando o
-    documento já trouxer uma tabela pronta desse tipo. Só interpretação do
-    texto, nunca cálculo.
+    sobrepõe o geral), e a projeção de fluxo anual (em R$ ou em % do saldo)
+    por classe, quando o documento já trouxer uma tabela pronta desse tipo.
+    Só interpretação do texto, nunca cálculo.
     """
 
     arquivo_nome: str
@@ -108,6 +138,7 @@ class ExtracaoPlanoPorClasse:
     condicoes_gerais: CondicoesGerais = field(default_factory=CondicoesGerais)
     condicoes_por_classe: dict[str, CondicoesPagamentoClasse] = field(default_factory=dict)
     projecoes_fluxo_anual: dict[str, ProjecaoFluxoAnualClasse] = field(default_factory=dict)
+    cronogramas_amortizacao: dict[str, CronogramaAmortizacaoClasse] = field(default_factory=dict)
     avisos: list[str] = field(default_factory=list)
 
 
