@@ -2,45 +2,61 @@
    material institucional (Modelos/*.pdf). Mantenha os valores abaixo em sincronia
    manual com o dicionário CORES em config.py.
 
-   Design System "Corporate Neobrutalist Dashboard" (v3) — inspirado
-   diretamente na estrutura visual do template Positivus (bordas grossas,
-   sombras duras sem blur, contraste alto preto/branco/verde-neon, cards com
-   variação de fundo, tipografia bold), aplicado a todas as páginas: canvas
-   claro, sem menu lateral (a Home é o hub de navegação — ver
-   interface/layout.py), gráficos em painéis escuros (contraste tipo
-   terminal financeiro, mantido por decisão do usuário). Ícones via Material
-   Symbols nativo do Streamlit (ver interface/icones.py), não SVG à mão. */
+   Design System "Dark Glass" (v4) — canvas escuro (navy quase-preto) com
+   glassmorphism: cards translúcidos com blur, bordas finas de vidro, brilho
+   suave em vez de sombra dura. Paleta volta às cores da empresa (azul
+   indigo/cyan), sem o verde/preto-e-branco da v3. Depende também de
+   .streamlit/config.toml (base="dark") para os componentes nativos do
+   Streamlit (dropdowns, calendário, grid do dataframe) ficarem escuros —
+   CSS sozinho não alcança esses componentes. Ícones via Material Symbols
+   nativo do Streamlit (ver interface/icones.py), não SVG à mão. */
 
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-    --amf3-indigo: #1B1B26;       /* "tinta" — bordas grossas, botões, ícones */
-    --amf3-indigo-claro: #B9FF66; /* verde neon — accent/hover (nome mantido por compatibilidade) */
-    --amf3-carvao: #14141A;       /* texto principal, quase preto */
-    --amf3-ambar: #B9FF66;        /* verde neon — accent secundário (era dourado) */
-    --amf3-fundo: #FFFFFF;        /* canvas — contraste vem das bordas, não do fundo */
-    --amf3-fundo-card: #FFFFFF;
-    --amf3-borda: var(--amf3-indigo);
-    --amf3-borda-largura: 2px;
-    --amf3-texto-mudo: #55564E;
-    --amf3-sucesso: #0CA30C;
-    --amf3-alerta: #E8A400;
-    --amf3-erro: #D03B3B;
-    --amf3-info: #2D6CDF;
+    --amf3-indigo: #5B67FF;         /* azul da marca — vívido para pop no fundo escuro */
+    --amf3-indigo-claro: #8B93FF;   /* variante clara — hover/foco/brilho */
+    --amf3-carvao: #F3F4F8;         /* texto principal — quase branco */
+    --amf3-ambar: #4FC3F7;          /* accent secundário — ciano-azulado (era verde/dourado) */
+    --amf3-fundo: #0B0E1A;          /* canvas — navy quase-preto */
+    --amf3-fundo-card: rgba(255, 255, 255, 0.05);  /* superfície de vidro */
+    --amf3-vidro-blur: 18px;
+    --amf3-borda: rgba(255, 255, 255, 0.14);
+    --amf3-borda-largura: 1px;
+    --amf3-texto-mudo: #9CA0BE;
+    --amf3-sucesso: #3DDC84;
+    --amf3-alerta: #FFC24B;
+    --amf3-erro: #FF6B6B;
+    --amf3-info: #5B9DFF;
     --amf3-fonte-titulo: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
     --amf3-fonte-corpo: 'Inter', 'Segoe UI', sans-serif;
     --amf3-raio: 20px;
-    --amf3-raio-pequeno: 12px;
-    --amf3-sombra: 4px 4px 0px var(--amf3-indigo);
-    --amf3-sombra-hover: 7px 7px 0px var(--amf3-indigo);
-    --amf3-transicao: 150ms ease;
+    --amf3-raio-pequeno: 14px;
+    --amf3-sombra: 0 8px 28px rgba(0, 0, 0, 0.45);
+    --amf3-sombra-hover: 0 16px 44px rgba(91, 103, 255, 0.28), 0 8px 28px rgba(0, 0, 0, 0.5);
+    --amf3-transicao: 180ms ease;
 }
 
 /* ---------- Base ---------- */
 
 .stApp {
     background-color: var(--amf3-fundo);
+    background-image:
+        radial-gradient(circle at 85% -10%, rgba(91, 103, 255, 0.16), transparent 45%),
+        radial-gradient(circle at -10% 110%, rgba(79, 195, 247, 0.10), transparent 45%);
+    background-attachment: fixed;
     font-family: var(--amf3-fonte-corpo);
+}
+
+.stApp, .stApp p, .stApp span, .stApp label, .stApp li,
+.stApp [data-testid="stMarkdownContainer"],
+.stApp [data-testid="stWidgetLabel"] {
+    color: var(--amf3-carvao);
+}
+
+.stApp [data-testid="stCaptionContainer"],
+.stApp [data-testid="stCaptionContainer"] p {
+    color: var(--amf3-texto-mudo) !important;
 }
 
 h1, h2, h3, h4, h5,
@@ -54,7 +70,7 @@ h1, h2, h3, h4, h5,
 
 .stApp hr {
     border: none;
-    border-top: var(--amf3-borda-largura) solid var(--amf3-indigo);
+    border-top: 1px solid var(--amf3-borda);
     opacity: 1;
     margin: 0.75rem 0 1.25rem 0;
 }
@@ -73,17 +89,27 @@ h1, h2, h3, h4, h5,
     }
 }
 
+/* ---------- Logo (chip claro — o logo é escuro, precisa de fundo claro) --- */
+
+.st-key-amf3_logo_chip {
+    background: #FFFFFF;
+    display: inline-block;
+    border-radius: 14px;
+    padding: 0.5rem 0.8rem;
+    box-shadow: var(--amf3-sombra);
+}
+
 /* ---------- Tela de login ---------- */
 
 .amf3-login-fundo {
     position: fixed;
     inset: 0;
     z-index: -1;
-    background: linear-gradient(135deg, var(--amf3-carvao) 0%, var(--amf3-indigo) 55%, var(--amf3-indigo-claro) 100%);
-    background-image:
-        radial-gradient(circle, rgba(255, 255, 255, 0.35) 1.5px, transparent 1.5px),
-        linear-gradient(135deg, var(--amf3-carvao) 0%, var(--amf3-indigo) 55%, var(--amf3-indigo-claro) 100%);
-    background-size: 20px 20px, cover;
+    background:
+        radial-gradient(circle at 15% 15%, rgba(91, 103, 255, 0.35), transparent 42%),
+        radial-gradient(circle at 85% 25%, rgba(79, 195, 247, 0.25), transparent 45%),
+        radial-gradient(circle at 50% 100%, rgba(139, 147, 255, 0.18), transparent 55%),
+        var(--amf3-fundo);
 }
 
 .st-key-amf3_login_card {
@@ -91,11 +117,11 @@ h1, h2, h3, h4, h5,
     margin: 7vh auto 0 auto;
     padding: 3rem 2.75rem 2.25rem 2.75rem;
     border-radius: 24px;
-    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
-    background: rgba(255, 255, 255, 0.96);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow: 10px 10px 0px var(--amf3-ambar);
+    border: 1px solid var(--amf3-borda);
+    background: var(--amf3-fundo-card);
+    backdrop-filter: blur(var(--amf3-vidro-blur));
+    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
+    box-shadow: var(--amf3-sombra);
     text-align: center;
     animation: amf3-login-entra 0.5s ease;
 }
@@ -111,13 +137,13 @@ h1, h2, h3, h4, h5,
 
 .st-key-amf3_login_card h2 [data-testid="stIconMaterial"] {
     font-size: 2.2rem !important;
-    color: var(--amf3-indigo);
+    color: var(--amf3-indigo-claro);
 }
 
 .amf3-login-titulo {
     font-family: var(--amf3-fonte-titulo);
     font-weight: 800;
-    color: var(--amf3-indigo);
+    color: var(--amf3-carvao);
     font-size: 1.5rem;
     margin: 0.1rem 0 0.15rem 0;
 }
@@ -143,7 +169,7 @@ h1, h2, h3, h4, h5,
 .amf3-appbar-titulo h2 {
     font-family: var(--amf3-fonte-titulo);
     font-weight: 800;
-    color: var(--amf3-indigo);
+    color: var(--amf3-carvao);
     margin: 0;
     font-size: 1.5rem;
 }
@@ -151,7 +177,7 @@ h1, h2, h3, h4, h5,
 .amf3-appbar-subtitulo {
     font-family: var(--amf3-fonte-titulo);
     font-weight: 600;
-    color: var(--amf3-carvao);
+    color: var(--amf3-indigo-claro);
     margin: 0.1rem 0 0 0;
     font-size: 0.9rem;
 }
@@ -190,37 +216,39 @@ h1, h2, h3, h4, h5,
     align-items: center;
     gap: 0.6rem;
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 800;
+    font-weight: 700;
     color: var(--amf3-carvao);
     margin: 0.25rem 0 1rem 0;
     padding-bottom: 0.6rem;
-    border-bottom: 3px solid var(--amf3-ambar);
-    font-size: 1.55rem;
+    border-bottom: 1px solid var(--amf3-borda);
+    font-size: 1.5rem;
 }
 
 .st-key-amf3_titulo_pagina h2 [data-testid="stIconMaterial"] {
-    color: var(--amf3-indigo);
-    font-size: 1.7rem !important;
+    color: var(--amf3-indigo-claro);
+    font-size: 1.6rem !important;
 }
 
 /* ---------- Botão "Voltar para Home" (substitui a navegação da sidebar) ---------- */
 
 .st-key-amf3_btn_voltar button {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.85rem;
-    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
+    border: 1px solid var(--amf3-borda);
     border-radius: 999px;
-    color: var(--amf3-indigo);
+    color: var(--amf3-texto-mudo);
     background: var(--amf3-fundo-card);
+    backdrop-filter: blur(var(--amf3-vidro-blur));
+    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
     box-shadow: none;
     padding: 0.3rem 0.9rem;
 }
 
 .st-key-amf3_btn_voltar button:hover {
-    color: var(--amf3-indigo);
-    border-color: var(--amf3-indigo);
-    background: var(--amf3-ambar);
+    color: var(--amf3-carvao);
+    border-color: var(--amf3-indigo-claro);
+    background: rgba(91, 103, 255, 0.16);
     box-shadow: none;
 }
 
@@ -228,27 +256,30 @@ h1, h2, h3, h4, h5,
 
 [data-testid="stMetric"] {
     background: var(--amf3-fundo-card);
+    backdrop-filter: blur(var(--amf3-vidro-blur));
+    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
     border-radius: var(--amf3-raio-pequeno);
     padding: 1rem 1.1rem;
-    border: var(--amf3-borda-largura) solid var(--amf3-borda);
-    border-left: 6px solid var(--amf3-ambar);
+    border: 1px solid var(--amf3-borda);
+    border-left: 3px solid var(--amf3-ambar);
     box-shadow: var(--amf3-sombra);
-    transition: box-shadow var(--amf3-transicao), transform var(--amf3-transicao);
+    transition: box-shadow var(--amf3-transicao), transform var(--amf3-transicao), border-color var(--amf3-transicao);
 }
 
 [data-testid="stMetric"]:hover {
     box-shadow: var(--amf3-sombra-hover);
-    transform: translate(-2px, -2px);
+    transform: translateY(-2px);
+    border-color: rgba(91, 103, 255, 0.35);
 }
 
 [data-testid="stMetricLabel"] {
     font-family: var(--amf3-fonte-corpo);
-    color: var(--amf3-carvao);
+    color: var(--amf3-texto-mudo);
 }
 
 [data-testid="stMetricValue"] {
     font-family: var(--amf3-fonte-titulo);
-    color: var(--amf3-indigo);
+    color: var(--amf3-indigo-claro);
     font-variant-numeric: tabular-nums;
 }
 
@@ -256,79 +287,79 @@ h1, h2, h3, h4, h5,
 
 .stButton > button, .stFormSubmitButton > button {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
+    font-weight: 600;
     border-radius: 999px;
-    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
-    color: var(--amf3-indigo);
+    border: 1px solid var(--amf3-borda);
+    color: var(--amf3-carvao);
     background: var(--amf3-fundo-card);
-    box-shadow: var(--amf3-sombra);
-    transition: background var(--amf3-transicao), color var(--amf3-transicao), box-shadow var(--amf3-transicao), transform var(--amf3-transicao);
+    backdrop-filter: blur(var(--amf3-vidro-blur));
+    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
+    box-shadow: none;
+    transition: background var(--amf3-transicao), color var(--amf3-transicao), box-shadow var(--amf3-transicao), border-color var(--amf3-transicao), transform var(--amf3-transicao);
 }
 
 .stButton > button:hover, .stFormSubmitButton > button:hover {
-    background: var(--amf3-indigo);
-    color: #FFFFFF;
-    border-color: var(--amf3-indigo);
-    box-shadow: var(--amf3-sombra-hover);
-    transform: translate(-2px, -2px);
+    background: rgba(91, 103, 255, 0.16);
+    color: var(--amf3-carvao);
+    border-color: var(--amf3-indigo-claro);
+    box-shadow: 0 0 0 3px rgba(91, 103, 255, 0.14);
+    transform: translateY(-1px);
 }
 
 .stButton > button:active, .stFormSubmitButton > button:active {
-    box-shadow: none !important;
-    transform: translate(4px, 4px);
+    transform: translateY(0);
+    box-shadow: none;
 }
 
 .stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primaryFormSubmit"] {
-    background: var(--amf3-indigo);
+    background: linear-gradient(135deg, var(--amf3-indigo) 0%, var(--amf3-indigo-claro) 100%);
     color: #FFFFFF;
-    border-color: var(--amf3-indigo);
+    border-color: transparent;
+    box-shadow: 0 6px 20px rgba(91, 103, 255, 0.35);
 }
 
 .stButton > button[kind="primary"]:hover, .stFormSubmitButton > button[kind="primaryFormSubmit"]:hover {
-    background: var(--amf3-ambar);
-    color: var(--amf3-indigo);
-    border-color: var(--amf3-indigo);
-    box-shadow: var(--amf3-sombra-hover);
+    box-shadow: 0 10px 28px rgba(91, 103, 255, 0.5);
+    border-color: transparent;
+    transform: translateY(-1px);
 }
 
 .stDownloadButton > button {
     border-radius: 999px;
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
-    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
-    color: var(--amf3-indigo);
+    font-weight: 600;
+    border: 1px solid var(--amf3-borda);
+    color: var(--amf3-carvao);
     background: var(--amf3-fundo-card);
-    box-shadow: var(--amf3-sombra);
-    transition: background var(--amf3-transicao), color var(--amf3-transicao), box-shadow var(--amf3-transicao), transform var(--amf3-transicao);
+    backdrop-filter: blur(var(--amf3-vidro-blur));
+    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
+    box-shadow: none;
+    transition: background var(--amf3-transicao), color var(--amf3-transicao), border-color var(--amf3-transicao), transform var(--amf3-transicao);
 }
 
 .stDownloadButton > button:hover {
-    background: var(--amf3-indigo);
-    color: #FFFFFF;
-    box-shadow: var(--amf3-sombra-hover);
-    transform: translate(-2px, -2px);
-}
-
-.stDownloadButton > button:active {
-    box-shadow: none !important;
-    transform: translate(4px, 4px);
+    background: rgba(91, 103, 255, 0.16);
+    border-color: var(--amf3-indigo-claro);
+    transform: translateY(-1px);
 }
 
 /* ---------- Formulários ---------- */
 
 .stTextInput input, .stNumberInput input, .stSelectbox > div, .stTextArea textarea {
     border-radius: var(--amf3-raio-pequeno) !important;
-    border: var(--amf3-borda-largura) solid var(--amf3-indigo) !important;
+    border: 1px solid var(--amf3-borda) !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    color: var(--amf3-carvao) !important;
     font-family: var(--amf3-fonte-corpo);
 }
 
 .stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
-    border-color: var(--amf3-indigo) !important;
-    box-shadow: 0 0 0 2px var(--amf3-ambar) !important;
+    border-color: var(--amf3-indigo-claro) !important;
+    box-shadow: 0 0 0 3px rgba(91, 103, 255, 0.25) !important;
 }
 
 .stTextInput input:disabled, .stNumberInput input:disabled, .stTextArea textarea:disabled {
-    background: rgba(20, 20, 26, 0.05) !important;
+    background: rgba(255, 255, 255, 0.02) !important;
     color: var(--amf3-texto-mudo) !important;
     opacity: 1;
 }
@@ -350,7 +381,7 @@ h1, h2, h3, h4, h5,
 .stButton > button:disabled,
 .stFormSubmitButton > button:disabled,
 .stDownloadButton > button:disabled {
-    opacity: 0.45;
+    opacity: 0.4;
     box-shadow: none !important;
     cursor: not-allowed;
 }
@@ -359,32 +390,39 @@ h1, h2, h3, h4, h5,
 
 [data-testid="stAlertContainer"] {
     border-radius: var(--amf3-raio-pequeno);
-    border: var(--amf3-borda-largura) solid transparent;
+    border: 1px solid transparent;
     font-family: var(--amf3-fonte-corpo);
+    backdrop-filter: blur(var(--amf3-vidro-blur));
+    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
+}
+
+[data-testid="stAlertContainer"] p,
+[data-testid="stAlertContainer"] [data-testid="stMarkdownContainer"] {
+    color: var(--amf3-carvao) !important;
 }
 
 [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]) {
-    background: rgba(45, 108, 223, 0.08);
-    border-color: rgba(45, 108, 223, 0.35);
-    border-left: 6px solid var(--amf3-info);
+    background: rgba(91, 157, 255, 0.12);
+    border-color: rgba(91, 157, 255, 0.35);
+    border-left: 3px solid var(--amf3-info);
 }
 
 [data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]) {
-    background: rgba(12, 163, 12, 0.08);
-    border-color: rgba(12, 163, 12, 0.35);
-    border-left: 6px solid var(--amf3-sucesso);
+    background: rgba(61, 220, 132, 0.12);
+    border-color: rgba(61, 220, 132, 0.35);
+    border-left: 3px solid var(--amf3-sucesso);
 }
 
 [data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {
-    background: rgba(232, 164, 0, 0.10);
-    border-color: rgba(232, 164, 0, 0.35);
-    border-left: 6px solid var(--amf3-alerta);
+    background: rgba(255, 194, 75, 0.12);
+    border-color: rgba(255, 194, 75, 0.35);
+    border-left: 3px solid var(--amf3-alerta);
 }
 
 [data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]) {
-    background: rgba(208, 59, 59, 0.08);
-    border-color: rgba(208, 59, 59, 0.35);
-    border-left: 6px solid var(--amf3-erro);
+    background: rgba(255, 107, 107, 0.12);
+    border-color: rgba(255, 107, 107, 0.35);
+    border-left: 3px solid var(--amf3-erro);
 }
 
 /* ---------- Tabelas, abas e expansores ---------- */
@@ -394,12 +432,13 @@ h1, h2, h3, h4, h5,
     overflow: hidden;
     font-family: var(--amf3-fonte-corpo);
     box-shadow: var(--amf3-sombra);
-    border: var(--amf3-borda-largura) solid var(--amf3-borda);
+    border: 1px solid var(--amf3-borda);
 }
 
 /* Cabeçalho com peso tipográfico maior + zebra striping + hover de linha —
-   só CSS nativo (sem biblioteca de tabela nova), a ordenação por coluna já
-   é nativa do st.dataframe/st.data_editor. */
+   só CSS nativo (sem biblioteca de tabela nova); a coloração do grid do
+   st.dataframe em si (glideDataEditor, desenhado em canvas) já vem escura
+   por conta do base="dark" em .streamlit/config.toml. */
 [data-testid="stDataFrame"] [data-testid="glideDataEditor"] {
     font-family: var(--amf3-fonte-corpo);
 }
@@ -407,51 +446,58 @@ h1, h2, h3, h4, h5,
 [data-testid="stTable"] table thead th {
     font-family: var(--amf3-fonte-titulo);
     font-weight: 700;
-    background: var(--amf3-indigo);
-    color: #FFFFFF;
+    background: rgba(91, 103, 255, 0.14);
+    color: var(--amf3-carvao);
+}
+
+[data-testid="stTable"] table tbody tr {
+    color: var(--amf3-carvao);
 }
 
 [data-testid="stTable"] table tbody tr:nth-child(even) {
-    background: rgba(185, 255, 102, 0.12);
+    background: rgba(255, 255, 255, 0.03);
 }
 
 [data-testid="stTable"] table tbody tr:hover {
-    background: rgba(185, 255, 102, 0.3);
+    background: rgba(91, 103, 255, 0.12);
 }
 
 .stTabs [data-baseweb="tab"] {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
-    color: var(--amf3-carvao);
+    font-weight: 600;
+    color: var(--amf3-texto-mudo);
 }
 
 .stTabs [aria-selected="true"] {
-    color: var(--amf3-indigo) !important;
+    color: var(--amf3-carvao) !important;
 }
 
 .stTabs [data-baseweb="tab-highlight"] {
-    background-color: var(--amf3-ambar) !important;
-    height: 3px !important;
+    background-color: var(--amf3-indigo-claro) !important;
+    height: 2px !important;
 }
 
 [data-testid="stExpander"] {
     border-radius: var(--amf3-raio-pequeno);
-    border: var(--amf3-borda-largura) solid var(--amf3-borda);
-    box-shadow: var(--amf3-sombra);
+    border: 1px solid var(--amf3-borda);
+    background: var(--amf3-fundo-card);
+    backdrop-filter: blur(var(--amf3-vidro-blur));
+    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
 }
 
 /* ---------- Gráficos (Plotly, tema escuro Flat 2.0) ---------- */
 /* Mesma cor de fundo passada ao Plotly (paper_bgcolor/plot_bgcolor) em
    _aplicar_tema_escuro_grafico() — sincronizada com config.py::
-   GRAFICO_SUPERFICIE_ESCURA — para o card e o gráfico se fundirem num único
-   painel escuro flutuando sobre o canvas claro da plataforma. Sombra em
-   verde neon para o painel escuro "pop" contra o fundo branco. */
+   GRAFICO_SUPERFICIE_ESCURA — um tom de "vidro escuro" ligeiramente mais
+   claro que o canvas da página, pra o painel ainda se destacar mesmo com
+   tudo em modo escuro agora. */
 
 [class*="st-key-amf3_grafico_"] {
-    background: #1B1B26;
+    background: #12162A;
     border-radius: var(--amf3-raio);
     padding: 0.5rem 0.75rem 0.75rem 0.75rem;
-    box-shadow: 6px 6px 0px var(--amf3-ambar);
+    border: 1px solid var(--amf3-borda);
+    box-shadow: var(--amf3-sombra);
     margin-bottom: 0.5rem;
 }
 
@@ -459,15 +505,15 @@ h1, h2, h3, h4, h5,
 
 [data-testid="stBadge"] {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
+    font-weight: 600;
     border-radius: 999px;
-    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
+    border: 1px solid var(--amf3-borda);
 }
 
 /* ---------- Hero de boas-vindas (Home) ---------- */
-/* Bloco de abertura da Home — deliberadamente quieto (o resto da plataforma
-   é neobrutalista/Positivus, mas a Home pedia algo minimalista: eyebrow
-   discreto, título com peso mas sem caixa, muito espaço em branco). */
+/* Bloco de abertura da Home: eyebrow discreto, título com peso, muito
+   espaço em branco — mesma hierarquia minimalista de antes, só recolorida
+   para o canvas escuro. */
 
 .amf3-home-hero {
     padding: 0.5rem 0.1rem 2.25rem 0.1rem;
@@ -479,7 +525,7 @@ h1, h2, h3, h4, h5,
     font-size: 0.78rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--amf3-texto-mudo);
+    color: var(--amf3-indigo-claro);
     margin: 0 0 0.6rem 0;
 }
 
@@ -505,10 +551,10 @@ h1, h2, h3, h4, h5,
 }
 
 /* ---------- Cards da Home ---------- */
-/* Minimalista de propósito: card compacto, borda fina única, sombra quase
-   imperceptível, ícone discreto num selo redondo, descrição truncada em 3
-   linhas (altura sempre uniforme, independente do tamanho do texto de cada
-   módulo) e um link de texto no lugar de um botão grande. */
+/* Minimalista + vidro: card compacto, borda fina translúcida, brilho suave
+   em vez de sombra dura, ícone discreto num selo de vidro, descrição
+   truncada em 3 linhas (altura sempre uniforme) e um link de texto no
+   lugar de um botão grande. */
 
 .amf3-card-conteudo {
     padding: 0.15rem 0.05rem 0.25rem 0.05rem;
@@ -525,8 +571,8 @@ h1, h2, h3, h4, h5,
 [class*="st-key-home_card_"] h2 [data-testid="stIconMaterial"] {
     font-size: 1.35rem !important;
     line-height: 1;
-    color: var(--amf3-carvao);
-    background: #F2F2EE;
+    color: var(--amf3-indigo-claro);
+    background: rgba(91, 103, 255, 0.12);
     border-radius: 10px;
     padding: 0.55rem;
     display: inline-flex;
@@ -569,7 +615,7 @@ h1, h2, h3, h4, h5,
 
 [class*="st-key-home_card_"] .stButton > button:hover {
     background: transparent;
-    color: var(--amf3-info);
+    color: var(--amf3-indigo-claro);
     box-shadow: none;
     transform: translateX(2px);
 }
@@ -581,8 +627,11 @@ h1, h2, h3, h4, h5,
 
 [data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo),
 [data-testid="stVerticalBlock"] > [style*="border"] {
-    border: var(--amf3-borda-largura) solid var(--amf3-indigo) !important;
+    border: 1px solid var(--amf3-borda) !important;
     border-radius: var(--amf3-raio) !important;
+    background: var(--amf3-fundo-card);
+    backdrop-filter: blur(var(--amf3-vidro-blur));
+    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
     box-shadow: var(--amf3-sombra);
     transition: box-shadow var(--amf3-transicao), transform var(--amf3-transicao), border-color var(--amf3-transicao);
 }
@@ -590,23 +639,8 @@ h1, h2, h3, h4, h5,
 [data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo):hover,
 [data-testid="stVerticalBlock"] > [style*="border"]:hover {
     box-shadow: var(--amf3-sombra-hover);
-    transform: translate(-3px, -3px);
-    border-color: var(--amf3-ambar) !important;
-}
-
-/* Sobrescreve a moldura neobrutalista acima só para os cards da Home —
-   aqui o pedido foi explicitamente "minimalista": borda fina, sombra quase
-   invisível, elevação sutil no hover em vez de deslocamento diagonal. */
-[data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo) {
-    border: 1px solid #E7E7E2 !important;
-    border-radius: 16px !important;
-    box-shadow: 0 1px 2px rgba(20, 20, 26, 0.04) !important;
-}
-
-[data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo):hover {
-    box-shadow: 0 12px 28px rgba(20, 20, 26, 0.08) !important;
     transform: translateY(-3px);
-    border-color: #D3D3CC !important;
+    border-color: rgba(91, 103, 255, 0.4) !important;
 }
 
 /* ---------- Rodapé ---------- */

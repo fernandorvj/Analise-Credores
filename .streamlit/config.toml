@@ -1,0 +1,15 @@
+# Tema base da plataforma AMF3 Capital — "Dark Glass" (v4).
+#
+# Necessário além do CSS em assets/estilos.css: vários componentes nativos do
+# Streamlit (menu do selectbox/multiselect, calendário do date_input, grid do
+# st.dataframe, steppers do number_input, upload de arquivo, sliders) são
+# desenhados pelo motor de tema interno do Streamlit (alguns até em canvas),
+# não são estilizáveis via CSS externo — só com base="dark" eles realmente
+# ficam escuros; o CSS cuida do resto (glassmorphism, cards, botões).
+[theme]
+base = "dark"
+primaryColor = "#5B67FF"
+backgroundColor = "#0B0E1A"
+secondaryBackgroundColor = "#12162A"
+textColor = "#F3F4F8"
+font = "sans serif"

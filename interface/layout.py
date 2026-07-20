@@ -69,7 +69,8 @@ def renderizar_cabecalho_app() -> None:
 
     with col_logo:
         if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), width=110)
+            with st.container(key="amf3_logo_chip"):
+                st.image(str(LOGO_PATH), width=110)
 
     with col_titulo:
         st.markdown(
