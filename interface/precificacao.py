@@ -275,6 +275,34 @@ def _parse_indice(texto: str) -> str:
     return "Nenhum"
 
 
+# Planos de RJ costumam declarar a correção como "<índice> + <spread>% a.a.
+# limitado a <teto>% a.a." (ex.: "TR + 1,00% a.a. limitado a 3,00% a.a.") —
+# um índice variável somado a um spread fixo, com teto. `_bloco_taxa_indice`
+# só sabe usar a taxa de UM índice isolado; esta regex detecta essa fórmula
+# composta no texto bruto extraído para poder calculá-la automaticamente
+# em vez de exigir que o usuário monte a conta na mão.
+_RE_FORMULA_CORRECAO = re.compile(
+    r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-]{1,15})\s*\+\s*(\d+(?:[.,]\d+)?)\s*%.{0,120}?limitad[oa].{0,30}?(\d+(?:[.,]\d+)?)\s*%",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _parse_formula_correcao(texto: str) -> tuple[str, Decimal, Decimal] | None:
+    """Detecta uma fórmula "índice + spread% a.a. limitado a teto% a.a." no
+    texto bruto extraído — retorna (nome_do_índice, spread, teto), todos já
+    como fração (ex.: 0.01 = 1%), ou None se o texto não seguir esse
+    padrão (nesse caso, cai no fluxo simples de um único índice)."""
+    match = _RE_FORMULA_CORRECAO.search(texto or "")
+    if not match:
+        return None
+    indice_nome = _parse_indice(match.group(1))
+    if indice_nome == "Nenhum":
+        return None
+    spread = Decimal(match.group(2).replace(",", ".")) / Decimal(100)
+    teto = Decimal(match.group(3).replace(",", ".")) / Decimal(100)
+    return indice_nome, spread, teto
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _consultar_taxa_cache(nome_indice: str):
     if nome_indice == "SELIC":
@@ -323,6 +351,55 @@ def _bloco_taxa_indice(rotulo: str, indice_sugerido: str, key_prefix: str, permi
         return indice_escolhido, Decimal(str(taxa_percentual)) / Decimal(100), ORIGEM_MANUAL, None
 
     return indice_escolhido, dados_indice["valor"], dados_indice["origem"], dados_indice["data_referencia"]
+
+
+def _bloco_correcao_monetaria(condicoes_texto: str, indice_sugerido: str, key_prefix: str) -> tuple[str, Decimal, str, date | None]:
+    """Índice de correção monetária — detecta automaticamente fórmulas
+    compostas do tipo "<índice> + <spread>% a.a. limitado a <teto>% a.a."
+    (comuns em Planos de RJ) no texto bruto extraído e calcula a taxa
+    aplicável sozinha (índice atual da API do BACEN + spread, limitada ao
+    teto) — sem essa detecção, cai no fluxo simples de `_bloco_taxa_indice`
+    (um único índice, sem spread nem teto)."""
+    formula = _parse_formula_correcao(condicoes_texto)
+    if formula is None:
+        return _bloco_taxa_indice("Índice de Correção Monetária", indice_sugerido, key_prefix)
+
+    indice_nome, spread, teto = formula
+    st.caption(
+        f"Fórmula detectada no Plano: {indice_nome} + {formatar_percentual(float(spread))} a.a., "
+        f"limitado a {formatar_percentual(float(teto))} a.a."
+    )
+    usar_formula = st.checkbox(
+        "Calcular automaticamente a partir do índice atual (recomendado)",
+        value=True,
+        key=f"{key_prefix}_usar_formula",
+    )
+    if not usar_formula:
+        return _bloco_taxa_indice("Índice de Correção Monetária", indice_sugerido, key_prefix)
+
+    dados_indice = _consultar_taxa_cache(indice_nome)
+    if dados_indice is None:
+        st.caption(
+            f"Não foi possível consultar {indice_nome} na API do BACEN agora — usando o teto "
+            f"({formatar_percentual(float(teto))} a.a.) como taxa conservadora até a consulta funcionar."
+        )
+        return f"{indice_nome}+spread (teto, sem consulta)", teto, "Teto do Plano (API indisponível)", None
+
+    taxa_indice = dados_indice["valor"]
+    taxa_calculada = min(taxa_indice + spread, teto)
+    st.caption(
+        f"{indice_nome} atual: {formatar_percentual(float(taxa_indice))} a.a. (referência "
+        f"{dados_indice['data_referencia'].strftime('%d/%m/%Y')}, {dados_indice['origem']}) + "
+        f"{formatar_percentual(float(spread))} a.a. = {formatar_percentual(float(taxa_indice + spread))} a.a. → "
+        f"aplicado {formatar_percentual(float(taxa_calculada))} a.a. "
+        f"({'limitado pelo teto' if taxa_indice + spread > teto else 'dentro do teto'})."
+    )
+    return (
+        f"{indice_nome}+{formatar_percentual(float(spread))} limitado a {formatar_percentual(float(teto))}",
+        taxa_calculada,
+        f"{indice_nome} ({dados_indice['origem']}) + spread, limitado ao teto do Plano",
+        dados_indice["data_referencia"],
+    )
 
 
 def _formulario_condicoes_classe(condicoes: CondicoesPagamentoClasse, sufixo_chave: str) -> dict:
@@ -395,8 +472,8 @@ def _formulario_condicoes_classe(condicoes: CondicoesPagamentoClasse, sufixo_cha
             valor_balao = Decimal(str(valor_balao_input))
 
         indice_sugerido = _parse_indice(condicoes.correcao_monetaria_indice)
-        correcao_indice, correcao_taxa_anual, correcao_origem, _ = _bloco_taxa_indice(
-            "Índice de Correção Monetária", indice_sugerido, f"prec_correcao_{sufixo_chave}"
+        correcao_indice, correcao_taxa_anual, correcao_origem, _ = _bloco_correcao_monetaria(
+            condicoes.correcao_monetaria_indice, indice_sugerido, f"prec_correcao_{sufixo_chave}"
         )
 
     return {
@@ -528,8 +605,8 @@ def _formulario_cronograma_percentual(
         )
 
     indice_sugerido = _parse_indice(condicoes.correcao_monetaria_indice)
-    correcao_indice, correcao_taxa_anual, _, _ = _bloco_taxa_indice(
-        "Índice de Correção Monetária", indice_sugerido, f"prec_cronograma_correcao_{sufixo_chave}"
+    correcao_indice, correcao_taxa_anual, _, _ = _bloco_correcao_monetaria(
+        condicoes.correcao_monetaria_indice, indice_sugerido, f"prec_cronograma_correcao_{sufixo_chave}"
     )
 
     df_linhas = pd.DataFrame(
