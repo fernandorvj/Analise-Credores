@@ -30,7 +30,6 @@ dashboard.injetar_css()
 if not dashboard.verificar_autenticacao():
     st.stop()
 
-layout.renderizar_menu_lateral()
 layout.renderizar_cabecalho_app()
 
 pagina = layout.pagina_atual()

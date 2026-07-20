@@ -148,11 +148,21 @@ def _renderizar_card(card: dict) -> None:
 
 
 def renderizar_home() -> None:
-    """Renderiza a tela inicial: mensagem de boas-vindas + os cards de módulos,
+    """Renderiza a tela inicial: hero de boas-vindas + os cards de módulos,
     em linhas de 3 colunas (funciona para qualquer quantidade de cards)."""
-    st.markdown("### Bem-vindo à Central AMF3 Capital")
-    st.caption("Selecione um módulo abaixo para começar.")
-    st.write("")
+    st.markdown(
+        """
+        <div class="amf3-home-hero">
+            <p class="amf3-home-hero-eyebrow">Central AMF3 Capital</p>
+            <h1 class="amf3-home-hero-titulo">Bem-vindo à sua plataforma de análise de créditos</h1>
+            <p class="amf3-home-hero-subtitulo">
+                Selecione um módulo abaixo para começar — da leitura da Petição Inicial
+                à precificação inteligente, simulação de financiamento e proposta ao credor.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     cards_por_linha = 3
     for inicio in range(0, len(_CARDS), cards_por_linha):

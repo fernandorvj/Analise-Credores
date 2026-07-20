@@ -1,8 +1,10 @@
 """Camada de navegação compartilhada por todas as páginas da plataforma AMF3.
 
-Cabeçalho superior, menu lateral, rodapé e troca de página — nada aqui contém
-lógica de negócio de nenhum módulo específico (Credores, Petição Inicial,
-Calculadora); cada módulo continua responsável pelo seu próprio conteúdo.
+Cabeçalho superior, rodapé e troca de página — nada aqui contém lógica de
+negócio de nenhum módulo específico (Credores, Petição Inicial, Calculadora);
+cada módulo continua responsável pelo seu próprio conteúdo. Não há mais menu
+lateral: a Home é o hub central de navegação (cards) e cada página de módulo
+tem um botão "Voltar para Home" (ver `renderizar_titulo_pagina`).
 """
 
 from __future__ import annotations
@@ -106,41 +108,23 @@ def renderizar_cabecalho_app() -> None:
     st.divider()
 
 
-def renderizar_menu_lateral() -> None:
-    """Menu lateral fixo, disponível em todas as páginas da plataforma."""
-    with st.sidebar:
-        if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), width=150)
-        st.markdown("#### Menu")
-
-        atual = pagina_atual()
-        for chave, rotulo, chave_icone in PAGINAS:
-            tipo = "primary" if chave == atual else "secondary"
-            if st.button(rotulo, key=f"menu_{chave}", icon=icone(chave_icone), width="stretch", type=tipo):
-                navegar_para(chave)
-
-        st.divider()
-        nome_usuario = APP_USERNAME or "Usuário"
-        st.markdown(
-            f"""
-            <div class="amf3-sidebar-usuario">
-                <strong>{nome_usuario}</strong><br>
-                <span style="opacity:.72;font-size:.78rem;">Administrador</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button("Sair", key="menu_btn_sair", icon=icone("sair"), width="stretch"):
-            fazer_logout()
-
-
 def renderizar_titulo_pagina(chave_icone: str, titulo: str) -> None:
     """Título compacto e consistente para o topo do conteúdo de uma página
     (substitui, em cada módulo, um cabeçalho grande próprio — evita duplicar
     banners empilhados sob o cabeçalho global da plataforma). Usa o shortcode
     de ícone nativo do Streamlit dentro do markdown — mesmo mecanismo já usado
     nos botões, sem depender de nenhum detalhe interno de implementação.
+
+    Sem menu lateral, a Home é o único hub de navegação — por isso, em toda
+    página que não seja a própria Home, esta função também renderiza o botão
+    "Voltar para Home" logo acima do título. Como todo módulo já chama esta
+    função no topo da página, o botão aparece em todos de uma vez, sem
+    precisar editar cada `interface/*.py` individualmente.
     """
+    if pagina_atual() != "home":
+        with st.container(key="amf3_btn_voltar"):
+            if st.button("Voltar para Home", key="btn_voltar_home", icon=icone("voltar")):
+                navegar_para("home")
     with st.container(key="amf3_titulo_pagina"):
         st.markdown(f"## {icone(chave_icone)} {titulo}")
 
