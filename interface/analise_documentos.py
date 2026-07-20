@@ -17,6 +17,7 @@ import streamlit as st
 
 from config import EXPORTADOS_DIR, PETICOES_DIR, possui_chave_openai
 from interface import layout
+from interface.componentes_ui import renderizar_preview_arquivo, tabela_premium
 from interface.icones import icone
 from src import ia, leitor_documentos
 from src.exportar_word_analise_documentos import exportar_word_analise_documentos
@@ -142,7 +143,12 @@ def _renderizar_valor_secao(valor: object) -> None:
         if not valor:
             st.info("Não foi possível identificar itens para esta seção no documento.")
         elif isinstance(valor[0], ItemComContexto):
-            st.table(pd.DataFrame([{"Item": i.item, "Contexto": i.contexto} for i in valor]))
+            tabela_premium(
+                pd.DataFrame([{"Item": i.item, "Contexto": i.contexto} for i in valor]),
+                key="analise_doc_itens",
+                permitir_busca=True,
+                rotulo_busca="Buscar item ou contexto",
+            )
         else:
             for item in valor:
                 st.markdown(f"- {item}")
@@ -209,6 +215,7 @@ def renderizar_analise_documentos() -> None:
 
     if modo == "Enviar arquivo":
         arquivo = st.file_uploader("Selecionar documento", type=_EXTENSOES_ACEITAS, key="doc_uploader")
+        renderizar_preview_arquivo(arquivo)
         if arquivo is not None:
             chave_cache = f"{arquivo.name}_{arquivo.size}"
             if st.session_state.get("doc_chave_cache") != chave_cache:

@@ -16,6 +16,7 @@ import streamlit as st
 
 from config import EXPORTADOS_DIR, PETICOES_DIR, possui_chave_openai
 from interface import layout
+from interface.componentes_ui import renderizar_preview_arquivo
 from interface.icones import icone
 from src import ia, leitor_documentos
 from src.exportar_word_proposta import exportar_word_proposta
@@ -63,6 +64,8 @@ def _formulario() -> tuple[dict, str] | None:
             accept_multiple_files=True,
             key="prop_arquivos_contexto",
         )
+        for arquivo_contexto in arquivos_contexto or []:
+            renderizar_preview_arquivo(arquivo_contexto)
 
         enviado = st.form_submit_button("Gerar Proposta", type="primary", icon=icone("proposta_credor"))
 

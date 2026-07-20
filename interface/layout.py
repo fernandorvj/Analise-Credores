@@ -1,10 +1,11 @@
 """Camada de navegação compartilhada por todas as páginas da plataforma AMF3.
 
-Cabeçalho superior, rodapé e troca de página — nada aqui contém lógica de
-negócio de nenhum módulo específico (Credores, Petição Inicial, Calculadora);
-cada módulo continua responsável pelo seu próprio conteúdo. Não há mais menu
-lateral: a Home é o hub central de navegação (cards) e cada página de módulo
-tem um botão "Voltar para Home" (ver `renderizar_titulo_pagina`).
+Cabeçalho superior, menu lateral, rodapé e troca de página — nada aqui
+contém lógica de negócio de nenhum módulo específico (Credores, Petição
+Inicial, Calculadora); cada módulo continua responsável pelo seu próprio
+conteúdo. A navegação principal é a sidebar (`renderizar_menu_lateral`,
+recolhível nativamente pelo Streamlit); a Home continua existindo como
+landing institucional com os cards de módulo.
 """
 
 from __future__ import annotations
@@ -59,6 +60,31 @@ def fazer_logout() -> None:
     st.session_state["autenticado"] = False
     st.session_state["pagina_atual"] = "home"
     st.rerun()
+
+
+def renderizar_menu_lateral() -> None:
+    """Menu lateral, recolhível nativamente pelo Streamlit (seta no topo) —
+    navegação principal da plataforma. A Home continua acessível como landing
+    institucional (cards de módulo), mas trocar de módulo rapidamente a
+    partir de qualquer página passa a ser feito por aqui.
+    """
+    pagina = pagina_atual()
+    with st.sidebar:
+        st.markdown(
+            f'<div class="amf3-sidebar-marca">{NOME_PLATAFORMA}</div>',
+            unsafe_allow_html=True,
+        )
+        for chave, rotulo, chave_icone in PAGINAS:
+            ativo = chave == pagina
+            if st.button(
+                rotulo,
+                key=f"menu_{chave}",
+                icon=icone(chave_icone),
+                type="primary" if ativo else "secondary",
+                width="stretch",
+            ):
+                if not ativo:
+                    navegar_para(chave)
 
 
 def renderizar_cabecalho_app() -> None:
@@ -116,16 +142,9 @@ def renderizar_titulo_pagina(chave_icone: str, titulo: str) -> None:
     de ícone nativo do Streamlit dentro do markdown — mesmo mecanismo já usado
     nos botões, sem depender de nenhum detalhe interno de implementação.
 
-    Sem menu lateral, a Home é o único hub de navegação — por isso, em toda
-    página que não seja a própria Home, esta função também renderiza o botão
-    "Voltar para Home" logo acima do título. Como todo módulo já chama esta
-    função no topo da página, o botão aparece em todos de uma vez, sem
-    precisar editar cada `interface/*.py` individualmente.
+    A navegação entre módulos é feita pela sidebar (`renderizar_menu_lateral`);
+    esta função não injeta mais um botão de retorno redundante.
     """
-    if pagina_atual() != "home":
-        with st.container(key="amf3_btn_voltar"):
-            if st.button("Voltar para Home", key="btn_voltar_home", icon=icone("voltar")):
-                navegar_para("home")
     with st.container(key="amf3_titulo_pagina"):
         st.markdown(f"## {icone(chave_icone)} {titulo}")
 

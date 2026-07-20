@@ -38,6 +38,12 @@ NOMES = {
     "fiscal": "receipt_long",
     "orgao": "gavel",
     "concluido": "check_circle",
+    "arquivo_pdf": "picture_as_pdf",
+    "arquivo_planilha": "table_chart",
+    "arquivo_imagem": "image",
+    "arquivo_link": "link",
+    "arquivo_generico": "draft",
+    "buscar": "search",
 }
 
 

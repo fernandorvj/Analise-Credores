@@ -32,6 +32,7 @@ from config import (
     possui_chave_openai,
     possui_protecao_por_senha,
 )
+from interface.componentes_ui import renderizar_preview_arquivo
 from interface.icones import icone
 from src import analise_quorum, estrategia, ia, leitor_pdf
 from src.estrategia import SimulacaoAprovacaoClasse
@@ -141,6 +142,7 @@ def renderizar_upload() -> ResultadoExtracao | None:
     para não reprocessar o mesmo arquivo a cada interação do usuário.
     """
     arquivo = st.file_uploader("Envie o PDF da relação de credores", type=["pdf"])
+    renderizar_preview_arquivo(arquivo)
     if arquivo is None:
         return st.session_state.get("resultado")
 

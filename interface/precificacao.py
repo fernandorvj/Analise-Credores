@@ -25,6 +25,7 @@ import streamlit as st
 from config import CLASSES_RJ_PADRAO, CORES, EXPORTADOS_DIR, PETICOES_DIR, possui_chave_openai
 from interface import layout
 from interface.calculadora.componentes import aplicar_tema_escuro_grafico, campo_moeda, container_grafico, renderizar_kpis
+from interface.componentes_ui import renderizar_preview_arquivo, tabela_premium
 from interface.icones import icone
 from src import ia, leitor_pdf
 from src.calculadora.amortizacao import adicionar_periodos
@@ -158,13 +159,16 @@ def _renderizar_quadro_geral(extracao: ExtracaoPlanoPorClasse) -> None:
             {"Condição": "Juros", "Valor": geral.juros},
             {"Condição": "Periodicidade", "Valor": geral.periodicidade},
         ]
-        st.table(pd.DataFrame(linhas_gerais))
+        tabela_premium(pd.DataFrame(linhas_gerais), key="prec_condicoes_gerais")
         if geral.trechos_localizados:
             with st.expander("Trechos das condições gerais no Plano (auditoria)"):
-                st.table(
+                tabela_premium(
                     pd.DataFrame(
                         [{"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto} for t in geral.trechos_localizados]
-                    )
+                    ),
+                    key="prec_trechos_gerais",
+                    permitir_busca=True,
+                    rotulo_busca="Buscar trecho",
                 )
 
     st.markdown("#### Condições por Classe (já mescladas com as condições gerais)")
@@ -187,7 +191,7 @@ def _renderizar_quadro_geral(extracao: ExtracaoPlanoPorClasse) -> None:
                 "Projeção Pronta": f"Sim ({len(projecao.linhas)} linhas)" if projecao and projecao.linhas else "Não",
             }
         )
-    st.table(pd.DataFrame(linhas))
+    tabela_premium(pd.DataFrame(linhas), key="prec_condicoes_por_classe")
 
 
 # --- Etapa 3: confirmação (parsing best-effort + edição) --------------------
@@ -331,10 +335,13 @@ def _formulario_condicoes_classe(condicoes: CondicoesPagamentoClasse, sufixo_cha
     st.markdown(f"#### Condições de Pagamento — {condicoes.classe}")
     if condicoes.trechos_localizados:
         with st.expander("Trechos localizados no Plano (auditoria)"):
-            st.table(
+            tabela_premium(
                 pd.DataFrame(
                     [{"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto} for t in condicoes.trechos_localizados]
-                )
+                ),
+                key=f"prec_trechos_classe_{sufixo_chave}",
+                permitir_busca=True,
+                rotulo_busca="Buscar trecho",
             )
     if condicoes.fluxos_alternativos:
         st.info(f"Fluxos alternativos identificados: {condicoes.fluxos_alternativos}")
@@ -420,10 +427,13 @@ def _formulario_projecao_fluxo(
     )
     if projecao.trechos_localizados:
         with st.expander("Trechos localizados no Plano (auditoria)"):
-            st.table(
+            tabela_premium(
                 pd.DataFrame(
                     [{"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto} for t in projecao.trechos_localizados]
-                )
+                ),
+                key=f"prec_trechos_projecao_{sufixo_chave}",
+                permitir_busca=True,
+                rotulo_busca="Buscar trecho",
             )
 
     col1, col2 = st.columns(2)
@@ -629,6 +639,7 @@ def renderizar_precificacao() -> None:
 
     if modo == "Upload de PDF":
         arquivo = st.file_uploader("Selecionar PDF do Plano de RJ", type=["pdf"], key="prec_uploader")
+        renderizar_preview_arquivo(arquivo)
         if arquivo is not None:
             chave_cache = f"{arquivo.name}_{arquivo.size}"
             if st.session_state.get("prec_chave_cache") != chave_cache:

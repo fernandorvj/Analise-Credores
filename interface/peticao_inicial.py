@@ -15,6 +15,7 @@ import streamlit as st
 
 from config import EXPORTADOS_DIR, PETICOES_DIR, possui_chave_openai
 from interface import layout
+from interface.componentes_ui import renderizar_preview_arquivo, tabela_premium
 from interface.icones import icone
 from src import ia, leitor_pdf
 from src.exportar_word_peticao_inicial import exportar_word_peticao_inicial
@@ -130,7 +131,7 @@ def _renderizar_passivo_fiscal(pf: PassivoFiscal) -> None:
         ("Existe Transação Tributária?", pf.existe_transacao_tributaria),
         ("Existe discussão administrativa ou judicial?", pf.existe_discussao_administrativa_judicial),
     ]
-    st.table(pd.DataFrame(situacao, columns=["Pergunta", "Resposta"]))
+    tabela_premium(pd.DataFrame(situacao, columns=["Pergunta", "Resposta"]), key="peticao_pf_situacao")
 
     st.markdown("##### Resumo")
     st.markdown(pf.resumo)
@@ -142,14 +143,17 @@ def _renderizar_passivo_fiscal(pf: PassivoFiscal) -> None:
         ("Quantidade de Processos", pf.quantidade_processos),
         ("Tributos Envolvidos", ", ".join(pf.tributos_envolvidos) if pf.tributos_envolvidos else "Não localizado"),
     ]
-    st.table(pd.DataFrame(valores, columns=["Item", "Valor"]))
+    tabela_premium(pd.DataFrame(valores, columns=["Item", "Valor"]), key="peticao_pf_valores")
 
     st.markdown("##### Trechos Localizados")
     if pf.trechos_localizados:
-        st.table(
+        tabela_premium(
             pd.DataFrame(
                 [{"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto} for t in pf.trechos_localizados]
-            )
+            ),
+            key="peticao_pf_trechos",
+            permitir_busca=True,
+            rotulo_busca="Buscar trecho",
         )
     else:
         st.info("Nenhum trecho localizado no documento.")
@@ -182,14 +186,19 @@ def _renderizar_valor_secao(valor: object) -> None:
             ("Mercado de Atuação", valor.mercado_atuacao),
             *valor.outros_dados,
         ]
-        st.table(pd.DataFrame(campos, columns=["Campo", "Valor"]))
+        tabela_premium(pd.DataFrame(campos, columns=["Campo", "Valor"]), key="peticao_dados_empresa")
         return
 
     if isinstance(valor, list):
         if not valor:
             st.info("Não foi possível identificar itens para esta seção no documento.")
         elif isinstance(valor[0], EventoCronologia):
-            st.table(pd.DataFrame([{"Data": e.data, "Evento": e.evento} for e in valor]))
+            tabela_premium(
+                pd.DataFrame([{"Data": e.data, "Evento": e.evento} for e in valor]),
+                key="peticao_cronologia",
+                permitir_busca=True,
+                rotulo_busca="Buscar evento",
+            )
         elif isinstance(valor[0], ItemComJustificativa):
             for item in valor:
                 st.markdown(f"**{item.ponto}**")
@@ -263,6 +272,7 @@ def renderizar_peticao_inicial() -> None:
     st.caption("Análise Inteligente da Recuperação Judicial")
 
     arquivo = st.file_uploader("Selecionar PDF", type=["pdf"], key="peticao_uploader")
+    renderizar_preview_arquivo(arquivo)
 
     if arquivo is not None:
         chave_cache = f"{arquivo.name}_{arquivo.size}"

@@ -99,6 +99,70 @@ h1, h2, h3, h4, h5,
     box-shadow: var(--amf3-sombra);
 }
 
+/* ---------- Menu lateral (sidebar) ---------- */
+/* Recolhível de fábrica pelo Streamlit (seta no topo) — não precisa de
+   lógica própria de colapso. Item ativo usa type="primary" (mesmo botão
+   com gradiente já usado em toda a plataforma), os demais ficam "ghost". */
+
+[data-testid="stSidebar"] {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(var(--amf3-vidro-blur));
+    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
+    border-right: 1px solid var(--amf3-borda);
+}
+
+.amf3-sidebar-marca {
+    font-family: var(--amf3-fonte-titulo);
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: var(--amf3-carvao);
+    padding: 0.25rem 0 1.25rem 0;
+    letter-spacing: -0.01em;
+}
+
+[data-testid="stSidebar"] .stButton > button {
+    justify-content: flex-start;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+[data-testid="stSidebar"] .stButton > button[kind="secondary"] {
+    background: transparent;
+    border-color: transparent;
+    color: var(--amf3-texto-mudo);
+    box-shadow: none;
+}
+
+[data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover {
+    background: rgba(91, 103, 255, 0.12);
+    color: var(--amf3-carvao);
+    border-color: transparent;
+    box-shadow: none;
+    transform: none;
+}
+
+[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+    box-shadow: 0 4px 16px rgba(91, 103, 255, 0.35);
+}
+
+[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+    transform: none;
+}
+
+/* ---------- Modais (st.dialog) ---------- */
+/* Nenhuma tela usa st.dialog hoje, mas o estilo já fica pronto — qualquer
+   modal futuro nasce consistente com o resto do design system (vidro,
+   blur, mesmo raio/sombra). */
+
+[data-testid="stDialog"] [data-testid="stDialogContent"] {
+    background: #12162A;
+    backdrop-filter: blur(var(--amf3-vidro-blur));
+    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
+    border: 1px solid var(--amf3-borda);
+    border-radius: var(--amf3-raio);
+    box-shadow: var(--amf3-sombra-hover);
+}
+
 /* ---------- Tela de login ---------- */
 
 .amf3-login-fundo {
