@@ -32,10 +32,13 @@ from src.calculadora.amortizacao import adicionar_periodos
 from src.calculadora.indices import obter_cdi_bacen, obter_igpm_12m_bacen, obter_ipca_12m_bacen, obter_tr_bacen
 from src.calculadora.models import Periodicidade
 from src.calculadora.precificacao_motor import (
+    LinhaCronogramaPercentual,
     LinhaFluxoInformado,
     ParametrosCalculoClasse,
+    ParametrosCalculoClasseComCronogramaPercentual,
     ParametrosCalculoClasseComProjecao,
     calcular_precificacao_classe,
+    calcular_precificacao_classe_com_cronograma_percentual,
     calcular_precificacao_classe_com_projecao,
 )
 from src.calculadora.selic import ORIGEM_MANUAL, obter_selic_bacen
@@ -44,6 +47,7 @@ from src.exportar_word_precificacao import exportar_word_precificacao
 from src.models_peticao_inicial import NAO_LOCALIZADO
 from src.models_precificacao import (
     CondicoesPagamentoClasse,
+    CronogramaAmortizacaoClasse,
     ExtracaoPlanoPorClasse,
     ProjecaoFluxoAnualClasse,
     ResultadoPrecificacaoClasse,
@@ -476,6 +480,89 @@ def _formulario_projecao_fluxo(
     return linhas_calculo, periodicidade
 
 
+def _formulario_cronograma_percentual(
+    cronograma: CronogramaAmortizacaoClasse, condicoes: CondicoesPagamentoClasse, sufixo_chave: str
+) -> tuple[list[LinhaCronogramaPercentual], Periodicidade, Decimal, str, Decimal]:
+    """Formulário editável com o cronograma de amortização em PERCENTUAL do
+    saldo pós-deságio, extraído do Plano — padrão comum quando o documento
+    define a forma de pagamento como "Ano 1: 0%, Ano 2 a 6: 3%..." em vez
+    de uma Tabela Price ou de uma projeção de fluxo já pronta em R$. Cada
+    percentual incide sobre o saldo pós-deságio DESTE crédito específico
+    (nunca sobre o total da classe inteira) — ver
+    `calcular_precificacao_classe_com_cronograma_percentual`.
+    """
+    st.markdown(f"#### Cronograma de Amortização (%) Extraído do Plano — {cronograma.classe}")
+    st.caption(
+        "Confira e corrija os percentuais abaixo se necessário antes de calcular — cada percentual incide "
+        "sobre o saldo já deságiado deste crédito específico, não sobre o total da classe."
+    )
+    if cronograma.trechos_localizados:
+        with st.expander("Trechos localizados no Plano (auditoria)"):
+            tabela_premium(
+                pd.DataFrame(
+                    [{"Página": t.pagina, "Trecho": t.trecho, "Contexto": t.contexto} for t in cronograma.trechos_localizados]
+                ),
+                key=f"prec_trechos_cronograma_{sufixo_chave}",
+                permitir_busca=True,
+                rotulo_busca="Buscar trecho",
+            )
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        desagio_percentual = st.number_input(
+            "Deságio (%)", min_value=0.0, max_value=99.0,
+            value=(_parse_percentual(condicoes.desagio) or 0.0) * 100, step=1.0, key=f"prec_cronograma_desagio_{sufixo_chave}",
+        )
+    with col2:
+        data_primeira_linha = st.date_input(
+            "Data da 1ª linha do cronograma", value=date.today(), key=f"prec_cronograma_data_{sufixo_chave}"
+        )
+    with col3:
+        periodicidades = list(Periodicidade)
+        periodicidade = st.selectbox(
+            "Periodicidade das linhas",
+            periodicidades,
+            index=periodicidades.index(Periodicidade.ANUAL),
+            format_func=lambda p: p.value,
+            key=f"prec_cronograma_periodicidade_{sufixo_chave}",
+        )
+
+    indice_sugerido = _parse_indice(condicoes.correcao_monetaria_indice)
+    correcao_indice, correcao_taxa_anual, _, _ = _bloco_taxa_indice(
+        "Índice de Correção Monetária", indice_sugerido, f"prec_cronograma_correcao_{sufixo_chave}"
+    )
+
+    df_linhas = pd.DataFrame(
+        [{"Período": linha.periodo, "% Amort.": (_parse_percentual(linha.percentual) or 0.0) * 100} for linha in cronograma.linhas]
+    )
+    df_editado = st.data_editor(
+        df_linhas,
+        column_config={
+            "Período": st.column_config.TextColumn(disabled=True),
+            "% Amort.": st.column_config.NumberColumn(format="%.2f%%", min_value=0.0, max_value=100.0, step=0.5),
+        },
+        hide_index=True,
+        width="stretch",
+        key=f"prec_cronograma_editor_{sufixo_chave}",
+    )
+
+    linhas_calculo = [
+        LinhaCronogramaPercentual(
+            data=adicionar_periodos(data_primeira_linha, numero, periodicidade),
+            descricao=str(linha["Período"]),
+            percentual=Decimal(str(linha["% Amort."])) / Decimal(100),
+        )
+        for numero, linha in enumerate(df_editado.to_dict(orient="records"))
+    ]
+    return (
+        linhas_calculo,
+        periodicidade,
+        Decimal(str(desagio_percentual)) / Decimal(100),
+        correcao_indice,
+        correcao_taxa_anual,
+    )
+
+
 # --- Etapa 5: gráficos e resultado -------------------------------------------
 
 
@@ -688,23 +775,40 @@ def renderizar_precificacao() -> None:
     )
     projecao_classe = extracao.projecoes_fluxo_anual.get(classe_escolhida) if extracao else None
     tem_projecao = bool(projecao_classe and projecao_classe.linhas)
+    cronograma_classe = extracao.cronogramas_amortizacao.get(classe_escolhida) if extracao else None
+    tem_cronograma = bool(cronograma_classe and cronograma_classe.linhas)
     sufixo_chave = f"{classe_escolhida}_{id(extracao) if extracao else 0}"
 
-    usar_projecao = False
+    opcoes_metodo = []
+    if tem_cronograma:
+        opcoes_metodo.append("cronograma_percentual")
     if tem_projecao:
-        usar_projecao = st.checkbox(
-            "Usar a projeção de fluxo já pronta no Plano (recomendado quando disponível)",
-            value=True,
-            key=f"prec_usar_projecao_{sufixo_chave}",
-            help=(
-                "O Plano já traz uma tabela pronta de valores a pagar por período para esta classe — "
-                "usar essa projeção é mais fiel ao Plano do que gerar um cronograma Price a partir de "
-                "deságio/carência/parcelas."
-            ),
+        opcoes_metodo.append("projecao_pronta")
+    opcoes_metodo.append("manual")
+    rotulos_metodo = {
+        "cronograma_percentual": "Cronograma de amortização em % extraído do Plano (recomendado quando disponível)",
+        "projecao_pronta": "Projeção de fluxo já pronta em R$ — atenção: geralmente é o total da classe inteira, "
+        "não deste crédito específico",
+        "manual": "Informar deságio, carência, juros e parcelas manualmente (Tabela Price)",
+    }
+    metodo = (
+        st.radio(
+            "Como calcular o fluxo de pagamentos desta classe?",
+            opcoes_metodo,
+            format_func=lambda k: rotulos_metodo[k],
+            key=f"prec_metodo_{sufixo_chave}",
         )
+        if len(opcoes_metodo) > 1
+        else opcoes_metodo[0]
+    )
 
     st.divider()
-    if usar_projecao:
+    if metodo == "cronograma_percentual":
+        linhas_cronograma, periodicidade_cronograma, desagio_cronograma, correcao_indice_cronograma, correcao_taxa_cronograma = (
+            _formulario_cronograma_percentual(cronograma_classe, condicoes_classe, sufixo_chave)
+        )
+        dados_formulario = None
+    elif metodo == "projecao_pronta":
         linhas_projecao, periodicidade_projecao = _formulario_projecao_fluxo(projecao_classe, sufixo_chave)
         dados_formulario = None
     else:
@@ -718,7 +822,22 @@ def renderizar_precificacao() -> None:
 
     if st.button("Calcular Precificação", type="primary", icon=icone("precificacao"), key="prec_btn_calcular"):
         try:
-            if usar_projecao:
+            if metodo == "cronograma_percentual":
+                parametros_cronograma = ParametrosCalculoClasseComCronogramaPercentual(
+                    classe=classe_escolhida,
+                    valor_nominal_credito=Decimal(str(valor_nominal_credito)),
+                    desagio=desagio_cronograma,
+                    linhas=linhas_cronograma,
+                    correcao_indice=correcao_indice_cronograma,
+                    correcao_taxa_anual=correcao_taxa_cronograma,
+                    periodicidade=periodicidade_cronograma,
+                    taxa_desconto_anual=taxa_desconto_anual,
+                    origem_taxa_desconto=origem_taxa_desconto,
+                    data_taxa_desconto=data_taxa_desconto,
+                    condicoes=condicoes_classe,
+                )
+                resultado = calcular_precificacao_classe_com_cronograma_percentual(parametros_cronograma)
+            elif metodo == "projecao_pronta":
                 parametros_projecao = ParametrosCalculoClasseComProjecao(
                     classe=classe_escolhida,
                     valor_nominal_credito=Decimal(str(valor_nominal_credito)),

@@ -372,3 +372,171 @@ def calcular_precificacao_classe_com_projecao(
         memoria_calculo=memoria,
         metodologia_validada=False,
     )
+
+
+@dataclass
+class LinhaCronogramaPercentual:
+    """Uma linha (um período) já convertida para número de um cronograma de
+    amortização em PERCENTUAL do saldo pós-deságio."""
+
+    data: date
+    descricao: str
+    percentual: Decimal  # fração, ex.: 0.03 = 3,00%
+
+
+@dataclass
+class ParametrosCalculoClasseComCronogramaPercentual:
+    """Parâmetros para calcular o VPL de uma classe a partir de um
+    cronograma de amortização em PERCENTUAL do saldo pós-deságio, por
+    período — padrão comum em Planos de RJ que definem a forma de
+    pagamento como "Ano 1: 0%, Ano 2 a 6: 3%, Ano 7 a 10: 5%..." em vez de
+    uma Tabela Price (deságio + juros + parcelas) ou de uma projeção de
+    fluxo em R$ já pronta.
+
+    Diferença crucial em relação a `calcular_precificacao_classe_com_projecao`:
+    aqui cada percentual incide sobre o saldo pós-deságio DESTE crédito
+    específico (`valor_nominal_credito` × (1 − deságio)) — nunca sobre um
+    valor agregado da classe inteira. Planos costumam publicar, ao lado do
+    cronograma percentual, uma "Projeção de Fluxo Anual" já em R$ para fins
+    de demonstração — mas essa projeção é o somatório de TODOS os credores
+    da classe; aplicar o percentual sobre o crédito individual (como esta
+    função faz) é o jeito correto de obter o fluxo de UM credor específico.
+    """
+
+    classe: str
+    valor_nominal_credito: Decimal  # Crédito Original (C0) — deste credor específico
+    desagio: Decimal  # fração, ex.: 0.85 = 85%
+    linhas: list[LinhaCronogramaPercentual]  # em ordem cronológica
+    correcao_indice: str
+    correcao_taxa_anual: Decimal
+    periodicidade: Periodicidade  # só para o casamento de período da taxa de desconto/correção
+    taxa_desconto_anual: Decimal
+    origem_taxa_desconto: str
+    data_taxa_desconto: date | None
+    condicoes: CondicoesPagamentoClasse
+
+
+def calcular_precificacao_classe_com_cronograma_percentual(
+    parametros: ParametrosCalculoClasseComCronogramaPercentual,
+) -> ResultadoPrecificacaoClasse:
+    """Calcula o VPL de um crédito a partir de um cronograma de amortização
+    em percentual do saldo pós-deságio (ex.: "Ano 1: 0%, Ano 2 a 6: 3%...")
+    — cada percentual multiplica o saldo pós-deságio DESTE crédito para
+    montar o valor nominal daquele período (nunca um saldo remanescente
+    tipo Price/SAC: é sempre a mesma base fixa, o saldo já deságiado uma
+    única vez no início). Correção monetária composta (se houver) e a
+    descapitalização linha por linha seguem a mesma convenção das demais
+    funções deste módulo.
+    """
+    if not parametros.linhas:
+        raise ValueError("O cronograma de amortização não tem nenhuma linha.")
+    if parametros.valor_nominal_credito <= 0:
+        raise ValueError("O valor nominal do crédito deve ser maior que zero.")
+    if parametros.desagio < 0 or parametros.desagio >= 1:
+        raise ValueError("O deságio deve estar entre 0% e 100% (exclusive).")
+
+    memoria: list[str] = []
+
+    valor_pos_desagio = arredondar(parametros.valor_nominal_credito * (Decimal(1) - parametros.desagio))
+    memoria.append(
+        f"Crédito Original (C0) = {formatar_moeda(float(parametros.valor_nominal_credito))}. Saldo pós-deságio "
+        f"= C0 × (1 − {formatar_percentual(float(parametros.desagio))}) = {formatar_moeda(float(valor_pos_desagio))}. "
+        "Cada percentual do cronograma de amortização abaixo incide sobre este saldo pós-deságio (base fixa, "
+        "não um saldo remanescente tipo Price/SAC)."
+    )
+
+    taxa_desconto_periodo = converter_taxa(
+        parametros.taxa_desconto_anual, Periodicidade.ANUAL, parametros.periodicidade, RegimeJuros.COMPOSTO
+    )
+    memoria.append(
+        f"Casamento de período: taxa de desconto ({formatar_percentual(float(parametros.taxa_desconto_anual))} "
+        f"a.a., {parametros.origem_taxa_desconto}) convertida para "
+        f"{formatar_percentual(float(taxa_desconto_periodo))} por {parametros.periodicidade.value.lower()}."
+    )
+
+    aplica_correcao = (
+        parametros.correcao_indice.strip().lower() not in _INDICES_SEM_CORRECAO and parametros.correcao_taxa_anual != 0
+    )
+    correcao_periodo = (
+        converter_taxa(parametros.correcao_taxa_anual, Periodicidade.ANUAL, parametros.periodicidade, RegimeJuros.COMPOSTO)
+        if aplica_correcao
+        else Decimal(0)
+    )
+    if aplica_correcao:
+        memoria.append(
+            f"Correção monetária por {parametros.correcao_indice} a "
+            f"{formatar_percentual(float(parametros.correcao_taxa_anual))} a.a. "
+            f"({formatar_percentual(float(correcao_periodo))} por {parametros.periodicidade.value.lower()}) "
+            "aplicada como fator composto sobre o valor nominal de cada parcela, proporcional ao número de "
+            "períodos decorridos desde a homologação."
+        )
+
+    fluxo: list[ParcelaPrecificacao] = []
+    for numero, linha in enumerate(parametros.linhas, start=1):
+        valor_nominal = arredondar(valor_pos_desagio * linha.percentual)
+        if aplica_correcao:
+            valor_nominal = arredondar(valor_nominal * (Decimal(1) + correcao_periodo) ** numero)
+        valor_descontado = arredondar(valor_nominal / ((Decimal(1) + taxa_desconto_periodo) ** numero))
+        fluxo.append(
+            ParcelaPrecificacao(
+                numero=numero,
+                data=linha.data,
+                descricao=linha.descricao,
+                carencia=False,
+                saldo_inicial=Decimal(0),
+                juros_periodo=Decimal(0),
+                amortizacao=valor_nominal,
+                valor_nominal=valor_nominal,
+                saldo_final=Decimal(0),
+                valor_descontado=valor_descontado,
+            )
+        )
+
+    fluxo_nominal_total = arredondar(sum((item.valor_nominal for item in fluxo), Decimal(0)))
+    vp_total = arredondar(sum((item.valor_descontado for item in fluxo), Decimal(0)))
+    vpl_comercial = arredondar(vp_total - parametros.valor_nominal_credito)
+    percentual_recuperacao = (
+        (vp_total / parametros.valor_nominal_credito) * 100 if parametros.valor_nominal_credito != 0 else Decimal(0)
+    )
+
+    memoria.append(
+        "Fluxo Nominal Total (soma de todas as parcelas do cronograma percentual) = "
+        f"{formatar_moeda(float(fluxo_nominal_total))}."
+    )
+    memoria.append(
+        "Valor Presente do Fluxo (VP Total) = soma do VP de cada linha, "
+        f"VP_t = Valor da linha / (1 + {formatar_percentual(float(taxa_desconto_periodo))})^t "
+        f"= {formatar_moeda(float(vp_total))}."
+    )
+    memoria.append(
+        f"VPL Real Comercial = VP Total − Crédito Original = {formatar_moeda(float(vp_total))} − "
+        f"{formatar_moeda(float(parametros.valor_nominal_credito))} = {formatar_moeda(float(vpl_comercial))}."
+    )
+    memoria.append(
+        "Percentual de Recuperação Efetiva = VP Total / Crédito Original = "
+        f"{formatar_percentual(float(percentual_recuperacao) / 100)}."
+    )
+    memoria.append(
+        "*** Cronograma de amortização em percentual aplicado sobre o saldo pós-deságio DESTE crédito "
+        "específico (não sobre o total da classe) — confira o percentual de cada período contra o Plano antes "
+        "de confiar no resultado; a extração automática pode ter imprecisões em documentos com diagramação "
+        "incomum. ***"
+    )
+
+    return ResultadoPrecificacaoClasse(
+        classe=parametros.classe,
+        valor_nominal_credito=parametros.valor_nominal_credito,
+        valor_atualizado_credito=None,
+        condicoes=parametros.condicoes,
+        taxa_desconto_anual=parametros.taxa_desconto_anual,
+        taxa_desconto_periodo=taxa_desconto_periodo,
+        origem_taxa_desconto=parametros.origem_taxa_desconto,
+        data_taxa_desconto=parametros.data_taxa_desconto,
+        fluxo=fluxo,
+        fluxo_nominal_total=fluxo_nominal_total,
+        vp_total=vp_total,
+        vpl_comercial=vpl_comercial,
+        percentual_recuperacao_efetiva=percentual_recuperacao,
+        memoria_calculo=memoria,
+        metodologia_validada=False,
+    )
