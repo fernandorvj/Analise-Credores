@@ -465,87 +465,118 @@ h1, h2, h3, h4, h5,
 }
 
 /* ---------- Hero de boas-vindas (Home) ---------- */
-/* Bloco de abertura da Home, agora o hub central de navegação: hierarquia
-   tipográfica forte (eyebrow + título grande + subtítulo) no estilo de
-   hero section corporativa (inspiração Positivus, sem sidebar). */
+/* Bloco de abertura da Home — deliberadamente quieto (o resto da plataforma
+   é neobrutalista/Positivus, mas a Home pedia algo minimalista: eyebrow
+   discreto, título com peso mas sem caixa, muito espaço em branco). */
 
 .amf3-home-hero {
-    padding: 0.75rem 0.1rem 1.75rem 0.1rem;
+    padding: 0.5rem 0.1rem 2.25rem 0.1rem;
 }
 
 .amf3-home-hero-eyebrow {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 800;
-    font-size: 0.85rem;
-    letter-spacing: 0.08em;
+    font-weight: 700;
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--amf3-carvao);
-    background: var(--amf3-ambar);
-    display: inline-block;
-    padding: 0.15rem 0.7rem;
-    border-radius: 999px;
-    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
-    margin: 0 0 0.75rem 0;
+    color: var(--amf3-texto-mudo);
+    margin: 0 0 0.6rem 0;
 }
 
 .amf3-home-hero-titulo {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 800;
-    font-size: 2.1rem;
+    font-weight: 700;
+    font-size: 2rem;
     letter-spacing: -0.02em;
-    line-height: 1.2;
+    line-height: 1.25;
     color: var(--amf3-carvao);
-    margin: 0 0 0.6rem 0;
+    margin: 0 0 0.75rem 0;
 }
 
 .amf3-home-hero-subtitulo {
     font-family: var(--amf3-fonte-corpo);
-    font-size: 1.02rem;
-    line-height: 1.6;
+    font-size: 1rem;
+    line-height: 1.65;
     color: var(--amf3-texto-mudo);
-    max-width: 640px;
+    max-width: 620px;
     margin: 0;
+    text-align: justify;
+    text-align-last: left;
 }
 
 /* ---------- Cards da Home ---------- */
-/* "Cartões grandes" no espírito Positivus: borda grossa preta, sombra dura,
-   sem blur, mais respiro interno, ícone e título com mais destaque, hover
-   mais perceptível (a Home é o hub de navegação principal agora que não há
-   mais menu lateral). */
+/* Minimalista de propósito: card compacto, borda fina única, sombra quase
+   imperceptível, ícone discreto num selo redondo, descrição truncada em 3
+   linhas (altura sempre uniforme, independente do tamanho do texto de cada
+   módulo) e um link de texto no lugar de um botão grande. */
 
 .amf3-card-conteudo {
-    padding: 0.5rem 0.15rem 1rem 0.15rem;
+    padding: 0.15rem 0.05rem 0.25rem 0.05rem;
 }
 
 [class*="st-key-home_card_"] {
-    padding: 0.5rem 0.25rem;
+    padding: 1.35rem 1.4rem;
 }
 
 [class*="st-key-home_card_"] h2 {
-    margin: 0 0 0.6rem 0;
+    margin: 0 0 0.9rem 0;
 }
 
 [class*="st-key-home_card_"] h2 [data-testid="stIconMaterial"] {
-    font-size: 2.7rem !important;
+    font-size: 1.35rem !important;
     line-height: 1;
-    color: var(--amf3-indigo);
+    color: var(--amf3-carvao);
+    background: #F2F2EE;
+    border-radius: 10px;
+    padding: 0.55rem;
+    display: inline-flex;
 }
 
 .amf3-card-titulo {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 800;
+    font-weight: 700;
     color: var(--amf3-carvao);
-    font-size: 1.35rem;
+    font-size: 1.05rem;
     letter-spacing: -0.01em;
-    margin: 0 0 0.55rem 0;
+    margin: 0 0 0.4rem 0;
 }
 
 .amf3-card-descricao {
     font-family: var(--amf3-fonte-corpo);
     color: var(--amf3-texto-mudo);
-    font-size: 0.92rem;
+    font-size: 0.85rem;
     line-height: 1.55;
-    margin-bottom: 0.75rem;
+    text-align: justify;
+    text-align-last: left;
+    margin-bottom: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+}
+
+[class*="st-key-home_card_"] .stButton > button {
+    background: transparent;
+    color: var(--amf3-carvao);
+    border: none;
+    box-shadow: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.9rem 0 0 0;
+    justify-content: flex-start;
+}
+
+[class*="st-key-home_card_"] .stButton > button:hover {
+    background: transparent;
+    color: var(--amf3-info);
+    box-shadow: none;
+    transform: translateX(2px);
+}
+
+[class*="st-key-home_card_"] .stButton > button:active {
+    transform: translateX(2px);
+    box-shadow: none;
 }
 
 [data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo),
@@ -563,56 +594,19 @@ h1, h2, h3, h4, h5,
     border-color: var(--amf3-ambar) !important;
 }
 
-/* Variantes de cor (mosaico à la Positivus: a maioria dos cards fica no
-   branco padrão acima; alguns cards recebem fundo escuro ou verde neon para
-   dar ritmo visual à grade — mesmo conteúdo/lógica, só o CSS muda). */
-
-.st-key-home_card_credores,
-.st-key-home_card_analise_documentos {
-    background: var(--amf3-indigo) !important;
+/* Sobrescreve a moldura neobrutalista acima só para os cards da Home —
+   aqui o pedido foi explicitamente "minimalista": borda fina, sombra quase
+   invisível, elevação sutil no hover em vez de deslocamento diagonal. */
+[data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo) {
+    border: 1px solid #E7E7E2 !important;
+    border-radius: 16px !important;
+    box-shadow: 0 1px 2px rgba(20, 20, 26, 0.04) !important;
 }
 
-.st-key-home_card_credores .amf3-card-titulo,
-.st-key-home_card_analise_documentos .amf3-card-titulo,
-.st-key-home_card_credores .amf3-card-descricao,
-.st-key-home_card_analise_documentos .amf3-card-descricao,
-.st-key-home_card_credores [data-testid="stMarkdownContainer"] li,
-.st-key-home_card_analise_documentos [data-testid="stMarkdownContainer"] li {
-    color: #FFFFFF;
-}
-
-.st-key-home_card_credores h2 [data-testid="stIconMaterial"],
-.st-key-home_card_analise_documentos h2 [data-testid="stIconMaterial"] {
-    color: var(--amf3-ambar);
-}
-
-.st-key-home_card_credores .stButton > button,
-.st-key-home_card_analise_documentos .stButton > button {
-    background: var(--amf3-ambar);
-    color: var(--amf3-indigo);
-    border-color: var(--amf3-ambar);
-}
-
-.st-key-home_card_credores .stButton > button:hover,
-.st-key-home_card_analise_documentos .stButton > button:hover {
-    background: #FFFFFF;
-    color: var(--amf3-indigo);
-    border-color: #FFFFFF;
-}
-
-.st-key-home_card_precificacao {
-    background: var(--amf3-ambar) !important;
-}
-
-.st-key-home_card_precificacao .stButton > button {
-    background: var(--amf3-indigo);
-    color: #FFFFFF;
-    border-color: var(--amf3-indigo);
-}
-
-.st-key-home_card_precificacao .stButton > button:hover {
-    background: #FFFFFF;
-    color: var(--amf3-indigo);
+[data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo):hover {
+    box-shadow: 0 12px 28px rgba(20, 20, 26, 0.08) !important;
+    transform: translateY(-3px);
+    border-color: #D3D3CC !important;
 }
 
 /* ---------- Rodapé ---------- */

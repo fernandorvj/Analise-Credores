@@ -134,16 +134,7 @@ def _renderizar_card(card: dict) -> None:
             """,
             unsafe_allow_html=True,
         )
-        for item in card["itens"]:
-            st.markdown(f"- {item}")
-        st.write("")
-        if st.button(
-            "Entrar",
-            key=f"{card['key']}_btn",
-            type="primary",
-            width="stretch",
-            icon=icone("entrar"),
-        ):
+        if st.button("Entrar", key=f"{card['key']}_btn", icon=icone("entrar")):
             navegar_para(card["pagina_destino"])
 
 
