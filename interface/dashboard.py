@@ -32,6 +32,7 @@ from config import (
     possui_chave_openai,
     possui_protecao_por_senha,
 )
+from interface.icones import icone
 from src import analise_quorum, estrategia, ia, leitor_pdf
 from src.estrategia import SimulacaoAprovacaoClasse
 from src.exportar_excel import exportar_excel
@@ -97,8 +98,6 @@ def verificar_autenticacao() -> bool:
         return True
     if st.session_state.get("autenticado"):
         return True
-
-    from interface.icones import icone
 
     st.markdown('<div class="amf3-login-fundo"></div>', unsafe_allow_html=True)
 
@@ -281,7 +280,9 @@ def renderizar_pendencias(resultado: ResultadoExtracao) -> None:
     pendencias = resultado.credores_para_revisar + resultado.credores_com_erro
     if not pendencias:
         return
-    with st.expander(f"⚠️ {len(pendencias)} registro(s) pendente(s) de revisão manual", expanded=False):
+    with st.expander(
+        f"{len(pendencias)} registro(s) pendente(s) de revisão manual", icon=icone("alerta"), expanded=False
+    ):
         st.caption(
             "Corrija nome, documento, classe ou valor diretamente na tabela e marque "
             '"Aprovar" para mover o registro para OK.'
@@ -515,9 +516,9 @@ def renderizar_votacao_aprovacao(resultado: ResultadoExtracao) -> None:
 
 
 def _renderizar_card_aprovacao_classe(sim: SimulacaoAprovacaoClasse) -> None:
-    icone = "✅" if sim.aprovada_atualmente else "🔴"
+    icone_status = icone("aprovado") if sim.aprovada_atualmente else icone("erro")
     with st.container(border=True):
-        st.markdown(f"#### {icone} {sim.classe}")
+        st.markdown(f"#### {icone_status} {sim.classe}")
 
         criterios_texto = []
         if sim.exige_valor:

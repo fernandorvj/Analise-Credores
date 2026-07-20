@@ -33,6 +33,11 @@ NOMES = {
     "analise_documentos": "find_in_page",
     "proposta_credor": "mail",
     "voltar": "arrow_back",
+    "moeda": "payments",
+    "ia": "psychology",
+    "fiscal": "receipt_long",
+    "orgao": "gavel",
+    "concluido": "check_circle",
 }
 
 

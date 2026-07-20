@@ -2,35 +2,37 @@
    material institucional (Modelos/*.pdf). Mantenha os valores abaixo em sincronia
    manual com o dicionário CORES em config.py.
 
-   Design System "Corporate Premium Dashboard" (v2) — inspirado conceitualmente
-   no template Positivus (hierarquia forte, muito espaço em branco, cards
-   grandes, bordas arredondadas), sem copiar o layout: canvas claro, sem menu
-   lateral (a Home é o hub de navegação — ver interface/layout.py), cards
-   grandes com sombra suave, gráficos em painéis escuros (contraste tipo
+   Design System "Corporate Neobrutalist Dashboard" (v3) — inspirado
+   diretamente na estrutura visual do template Positivus (bordas grossas,
+   sombras duras sem blur, contraste alto preto/branco/verde-neon, cards com
+   variação de fundo, tipografia bold), aplicado a todas as páginas: canvas
+   claro, sem menu lateral (a Home é o hub de navegação — ver
+   interface/layout.py), gráficos em painéis escuros (contraste tipo
    terminal financeiro, mantido por decisão do usuário). Ícones via Material
    Symbols nativo do Streamlit (ver interface/icones.py), não SVG à mão. */
 
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-    --amf3-indigo: #242288;        /* indigo da marca (logo, títulos) */
-    --amf3-indigo-claro: #3633CC;  /* variante p/ UI e gráficos */
-    --amf3-carvao: #373435;        /* carvão da marca (texto principal) */
-    --amf3-ambar: #B87A12;
-    --amf3-fundo: #FAFAFA;         /* canvas principal — claro e neutro */
+    --amf3-indigo: #1B1B26;       /* "tinta" — bordas grossas, botões, ícones */
+    --amf3-indigo-claro: #B9FF66; /* verde neon — accent/hover (nome mantido por compatibilidade) */
+    --amf3-carvao: #14141A;       /* texto principal, quase preto */
+    --amf3-ambar: #B9FF66;        /* verde neon — accent secundário (era dourado) */
+    --amf3-fundo: #FFFFFF;        /* canvas — contraste vem das bordas, não do fundo */
     --amf3-fundo-card: #FFFFFF;
-    --amf3-borda: rgba(36, 34, 136, 0.10);
-    --amf3-texto-mudo: #6b6966;
+    --amf3-borda: var(--amf3-indigo);
+    --amf3-borda-largura: 2px;
+    --amf3-texto-mudo: #55564E;
     --amf3-sucesso: #0CA30C;
-    --amf3-alerta: #FAB219;
+    --amf3-alerta: #E8A400;
     --amf3-erro: #D03B3B;
-    --amf3-info: #3633CC;
+    --amf3-info: #2D6CDF;
     --amf3-fonte-titulo: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
     --amf3-fonte-corpo: 'Inter', 'Segoe UI', sans-serif;
     --amf3-raio: 20px;
     --amf3-raio-pequeno: 12px;
-    --amf3-sombra: 0 4px 16px rgba(36, 34, 136, 0.08);
-    --amf3-sombra-hover: 0 12px 32px rgba(36, 34, 136, 0.14);
+    --amf3-sombra: 4px 4px 0px var(--amf3-indigo);
+    --amf3-sombra-hover: 7px 7px 0px var(--amf3-indigo);
     --amf3-transicao: 150ms ease;
 }
 
@@ -48,6 +50,13 @@ h1, h2, h3, h4, h5,
     font-family: var(--amf3-fonte-titulo);
     font-weight: 700;
     color: var(--amf3-carvao);
+}
+
+.stApp hr {
+    border: none;
+    border-top: var(--amf3-borda-largura) solid var(--amf3-indigo);
+    opacity: 1;
+    margin: 0.75rem 0 1.25rem 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -82,10 +91,11 @@ h1, h2, h3, h4, h5,
     margin: 7vh auto 0 auto;
     padding: 3rem 2.75rem 2.25rem 2.75rem;
     border-radius: 24px;
-    background: rgba(255, 255, 255, 0.94);
+    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
+    background: rgba(255, 255, 255, 0.96);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 24px 70px rgba(11, 10, 40, 0.38);
+    box-shadow: 10px 10px 0px var(--amf3-ambar);
     text-align: center;
     animation: amf3-login-entra 0.5s ease;
 }
@@ -106,7 +116,7 @@ h1, h2, h3, h4, h5,
 
 .amf3-login-titulo {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
+    font-weight: 800;
     color: var(--amf3-indigo);
     font-size: 1.5rem;
     margin: 0.1rem 0 0.15rem 0;
@@ -132,7 +142,7 @@ h1, h2, h3, h4, h5,
 
 .amf3-appbar-titulo h2 {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
+    font-weight: 800;
     color: var(--amf3-indigo);
     margin: 0;
     font-size: 1.5rem;
@@ -180,9 +190,11 @@ h1, h2, h3, h4, h5,
     align-items: center;
     gap: 0.6rem;
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
+    font-weight: 800;
     color: var(--amf3-carvao);
-    margin: 0.25rem 0 1.25rem 0;
+    margin: 0.25rem 0 1rem 0;
+    padding-bottom: 0.6rem;
+    border-bottom: 3px solid var(--amf3-ambar);
     font-size: 1.55rem;
 }
 
@@ -195,12 +207,12 @@ h1, h2, h3, h4, h5,
 
 .st-key-amf3_btn_voltar button {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 600;
+    font-weight: 700;
     font-size: 0.85rem;
-    border: 1.5px solid var(--amf3-borda);
+    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
     border-radius: 999px;
-    color: var(--amf3-texto-mudo);
-    background: transparent;
+    color: var(--amf3-indigo);
+    background: var(--amf3-fundo-card);
     box-shadow: none;
     padding: 0.3rem 0.9rem;
 }
@@ -208,7 +220,7 @@ h1, h2, h3, h4, h5,
 .st-key-amf3_btn_voltar button:hover {
     color: var(--amf3-indigo);
     border-color: var(--amf3-indigo);
-    background: rgba(36, 34, 136, 0.05);
+    background: var(--amf3-ambar);
     box-shadow: none;
 }
 
@@ -218,15 +230,15 @@ h1, h2, h3, h4, h5,
     background: var(--amf3-fundo-card);
     border-radius: var(--amf3-raio-pequeno);
     padding: 1rem 1.1rem;
-    border: 1px solid var(--amf3-borda);
-    border-left: 4px solid var(--amf3-ambar);
+    border: var(--amf3-borda-largura) solid var(--amf3-borda);
+    border-left: 6px solid var(--amf3-ambar);
     box-shadow: var(--amf3-sombra);
     transition: box-shadow var(--amf3-transicao), transform var(--amf3-transicao);
 }
 
 [data-testid="stMetric"]:hover {
     box-shadow: var(--amf3-sombra-hover);
-    transform: translateY(-1px);
+    transform: translate(-2px, -2px);
 }
 
 [data-testid="stMetricLabel"] {
@@ -244,19 +256,26 @@ h1, h2, h3, h4, h5,
 
 .stButton > button, .stFormSubmitButton > button {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 600;
+    font-weight: 700;
     border-radius: 999px;
-    border: 1.5px solid var(--amf3-indigo);
+    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
     color: var(--amf3-indigo);
     background: var(--amf3-fundo-card);
-    transition: background var(--amf3-transicao), color var(--amf3-transicao), box-shadow var(--amf3-transicao);
+    box-shadow: var(--amf3-sombra);
+    transition: background var(--amf3-transicao), color var(--amf3-transicao), box-shadow var(--amf3-transicao), transform var(--amf3-transicao);
 }
 
 .stButton > button:hover, .stFormSubmitButton > button:hover {
     background: var(--amf3-indigo);
     color: #FFFFFF;
     border-color: var(--amf3-indigo);
-    box-shadow: var(--amf3-sombra);
+    box-shadow: var(--amf3-sombra-hover);
+    transform: translate(-2px, -2px);
+}
+
+.stButton > button:active, .stFormSubmitButton > button:active {
+    box-shadow: none !important;
+    transform: translate(4px, 4px);
 }
 
 .stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primaryFormSubmit"] {
@@ -266,36 +285,50 @@ h1, h2, h3, h4, h5,
 }
 
 .stButton > button[kind="primary"]:hover, .stFormSubmitButton > button[kind="primaryFormSubmit"]:hover {
-    background: var(--amf3-indigo-claro);
-    border-color: var(--amf3-indigo-claro);
+    background: var(--amf3-ambar);
+    color: var(--amf3-indigo);
+    border-color: var(--amf3-indigo);
     box-shadow: var(--amf3-sombra-hover);
 }
 
 .stDownloadButton > button {
     border-radius: 999px;
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 600;
-    transition: box-shadow var(--amf3-transicao);
+    font-weight: 700;
+    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
+    color: var(--amf3-indigo);
+    background: var(--amf3-fundo-card);
+    box-shadow: var(--amf3-sombra);
+    transition: background var(--amf3-transicao), color var(--amf3-transicao), box-shadow var(--amf3-transicao), transform var(--amf3-transicao);
 }
 
 .stDownloadButton > button:hover {
-    box-shadow: var(--amf3-sombra);
+    background: var(--amf3-indigo);
+    color: #FFFFFF;
+    box-shadow: var(--amf3-sombra-hover);
+    transform: translate(-2px, -2px);
+}
+
+.stDownloadButton > button:active {
+    box-shadow: none !important;
+    transform: translate(4px, 4px);
 }
 
 /* ---------- Formulários ---------- */
 
 .stTextInput input, .stNumberInput input, .stSelectbox > div, .stTextArea textarea {
     border-radius: var(--amf3-raio-pequeno) !important;
+    border: var(--amf3-borda-largura) solid var(--amf3-indigo) !important;
     font-family: var(--amf3-fonte-corpo);
 }
 
 .stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
     border-color: var(--amf3-indigo) !important;
-    box-shadow: 0 0 0 2px rgba(36, 34, 136, 0.15) !important;
+    box-shadow: 0 0 0 2px var(--amf3-ambar) !important;
 }
 
 .stTextInput input:disabled, .stNumberInput input:disabled, .stTextArea textarea:disabled {
-    background: rgba(55, 52, 53, 0.05) !important;
+    background: rgba(20, 20, 26, 0.05) !important;
     color: var(--amf3-texto-mudo) !important;
     opacity: 1;
 }
@@ -326,32 +359,32 @@ h1, h2, h3, h4, h5,
 
 [data-testid="stAlertContainer"] {
     border-radius: var(--amf3-raio-pequeno);
-    border: 1px solid transparent;
+    border: var(--amf3-borda-largura) solid transparent;
     font-family: var(--amf3-fonte-corpo);
 }
 
 [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]) {
-    background: rgba(54, 51, 204, 0.08);
-    border-color: rgba(54, 51, 204, 0.22);
-    border-left: 4px solid var(--amf3-info);
+    background: rgba(45, 108, 223, 0.08);
+    border-color: rgba(45, 108, 223, 0.35);
+    border-left: 6px solid var(--amf3-info);
 }
 
 [data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]) {
     background: rgba(12, 163, 12, 0.08);
-    border-color: rgba(12, 163, 12, 0.22);
-    border-left: 4px solid var(--amf3-sucesso);
+    border-color: rgba(12, 163, 12, 0.35);
+    border-left: 6px solid var(--amf3-sucesso);
 }
 
 [data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {
-    background: rgba(250, 178, 25, 0.10);
-    border-color: rgba(250, 178, 25, 0.28);
-    border-left: 4px solid var(--amf3-alerta);
+    background: rgba(232, 164, 0, 0.10);
+    border-color: rgba(232, 164, 0, 0.35);
+    border-left: 6px solid var(--amf3-alerta);
 }
 
 [data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]) {
     background: rgba(208, 59, 59, 0.08);
-    border-color: rgba(208, 59, 59, 0.22);
-    border-left: 4px solid var(--amf3-erro);
+    border-color: rgba(208, 59, 59, 0.35);
+    border-left: 6px solid var(--amf3-erro);
 }
 
 /* ---------- Tabelas, abas e expansores ---------- */
@@ -361,7 +394,7 @@ h1, h2, h3, h4, h5,
     overflow: hidden;
     font-family: var(--amf3-fonte-corpo);
     box-shadow: var(--amf3-sombra);
-    border: 1px solid var(--amf3-borda);
+    border: var(--amf3-borda-largura) solid var(--amf3-borda);
 }
 
 /* Cabeçalho com peso tipográfico maior + zebra striping + hover de linha —
@@ -374,21 +407,21 @@ h1, h2, h3, h4, h5,
 [data-testid="stTable"] table thead th {
     font-family: var(--amf3-fonte-titulo);
     font-weight: 700;
-    background: rgba(36, 34, 136, 0.04);
-    color: var(--amf3-carvao);
+    background: var(--amf3-indigo);
+    color: #FFFFFF;
 }
 
 [data-testid="stTable"] table tbody tr:nth-child(even) {
-    background: rgba(36, 34, 136, 0.02);
+    background: rgba(185, 255, 102, 0.12);
 }
 
 [data-testid="stTable"] table tbody tr:hover {
-    background: rgba(36, 34, 136, 0.06);
+    background: rgba(185, 255, 102, 0.3);
 }
 
 .stTabs [data-baseweb="tab"] {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 600;
+    font-weight: 700;
     color: var(--amf3-carvao);
 }
 
@@ -397,24 +430,28 @@ h1, h2, h3, h4, h5,
 }
 
 .stTabs [data-baseweb="tab-highlight"] {
-    background-color: var(--amf3-indigo) !important;
+    background-color: var(--amf3-ambar) !important;
+    height: 3px !important;
 }
 
 [data-testid="stExpander"] {
     border-radius: var(--amf3-raio-pequeno);
-    border: 1px solid var(--amf3-borda);
+    border: var(--amf3-borda-largura) solid var(--amf3-borda);
+    box-shadow: var(--amf3-sombra);
 }
 
 /* ---------- Gráficos (Plotly, tema escuro Flat 2.0) ---------- */
 /* Mesma cor de fundo passada ao Plotly (paper_bgcolor/plot_bgcolor) em
-   _aplicar_tema_escuro_grafico(), para o card e o gráfico se fundirem num
-   único painel escuro flutuando sobre o canvas claro da plataforma. */
+   _aplicar_tema_escuro_grafico() — sincronizada com config.py::
+   GRAFICO_SUPERFICIE_ESCURA — para o card e o gráfico se fundirem num único
+   painel escuro flutuando sobre o canvas claro da plataforma. Sombra em
+   verde neon para o painel escuro "pop" contra o fundo branco. */
 
 [class*="st-key-amf3_grafico_"] {
-    background: #1B1930;
+    background: #1B1B26;
     border-radius: var(--amf3-raio);
     padding: 0.5rem 0.75rem 0.75rem 0.75rem;
-    box-shadow: var(--amf3-sombra);
+    box-shadow: 6px 6px 0px var(--amf3-ambar);
     margin-bottom: 0.5rem;
 }
 
@@ -422,8 +459,9 @@ h1, h2, h3, h4, h5,
 
 [data-testid="stBadge"] {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 600;
+    font-weight: 700;
     border-radius: 999px;
+    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
 }
 
 /* ---------- Hero de boas-vindas (Home) ---------- */
@@ -437,12 +475,17 @@ h1, h2, h3, h4, h5,
 
 .amf3-home-hero-eyebrow {
     font-family: var(--amf3-fonte-titulo);
-    font-weight: 700;
-    font-size: 0.8rem;
+    font-weight: 800;
+    font-size: 0.85rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--amf3-indigo);
-    margin: 0 0 0.5rem 0;
+    color: var(--amf3-carvao);
+    background: var(--amf3-ambar);
+    display: inline-block;
+    padding: 0.15rem 0.7rem;
+    border-radius: 999px;
+    border: var(--amf3-borda-largura) solid var(--amf3-indigo);
+    margin: 0 0 0.75rem 0;
 }
 
 .amf3-home-hero-titulo {
@@ -465,9 +508,10 @@ h1, h2, h3, h4, h5,
 }
 
 /* ---------- Cards da Home ---------- */
-/* "Cartões grandes" — mais respiro interno, ícone e título com mais
-   destaque, hover mais perceptível (a Home é o hub de navegação principal
-   agora que não há mais menu lateral). */
+/* "Cartões grandes" no espírito Positivus: borda grossa preta, sombra dura,
+   sem blur, mais respiro interno, ícone e título com mais destaque, hover
+   mais perceptível (a Home é o hub de navegação principal agora que não há
+   mais menu lateral). */
 
 .amf3-card-conteudo {
     padding: 0.5rem 0.15rem 1rem 0.15rem;
@@ -506,6 +550,7 @@ h1, h2, h3, h4, h5,
 
 [data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo),
 [data-testid="stVerticalBlock"] > [style*="border"] {
+    border: var(--amf3-borda-largura) solid var(--amf3-indigo) !important;
     border-radius: var(--amf3-raio) !important;
     box-shadow: var(--amf3-sombra);
     transition: box-shadow var(--amf3-transicao), transform var(--amf3-transicao), border-color var(--amf3-transicao);
@@ -514,15 +559,67 @@ h1, h2, h3, h4, h5,
 [data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo):hover,
 [data-testid="stVerticalBlock"] > [style*="border"]:hover {
     box-shadow: var(--amf3-sombra-hover);
-    transform: translateY(-4px);
-    border-color: rgba(36, 34, 136, 0.25) !important;
+    transform: translate(-3px, -3px);
+    border-color: var(--amf3-ambar) !important;
+}
+
+/* Variantes de cor (mosaico à la Positivus: a maioria dos cards fica no
+   branco padrão acima; alguns cards recebem fundo escuro ou verde neon para
+   dar ritmo visual à grade — mesmo conteúdo/lógica, só o CSS muda). */
+
+.st-key-home_card_credores,
+.st-key-home_card_analise_documentos {
+    background: var(--amf3-indigo) !important;
+}
+
+.st-key-home_card_credores .amf3-card-titulo,
+.st-key-home_card_analise_documentos .amf3-card-titulo,
+.st-key-home_card_credores .amf3-card-descricao,
+.st-key-home_card_analise_documentos .amf3-card-descricao,
+.st-key-home_card_credores [data-testid="stMarkdownContainer"] li,
+.st-key-home_card_analise_documentos [data-testid="stMarkdownContainer"] li {
+    color: #FFFFFF;
+}
+
+.st-key-home_card_credores h2 [data-testid="stIconMaterial"],
+.st-key-home_card_analise_documentos h2 [data-testid="stIconMaterial"] {
+    color: var(--amf3-ambar);
+}
+
+.st-key-home_card_credores .stButton > button,
+.st-key-home_card_analise_documentos .stButton > button {
+    background: var(--amf3-ambar);
+    color: var(--amf3-indigo);
+    border-color: var(--amf3-ambar);
+}
+
+.st-key-home_card_credores .stButton > button:hover,
+.st-key-home_card_analise_documentos .stButton > button:hover {
+    background: #FFFFFF;
+    color: var(--amf3-indigo);
+    border-color: #FFFFFF;
+}
+
+.st-key-home_card_precificacao {
+    background: var(--amf3-ambar) !important;
+}
+
+.st-key-home_card_precificacao .stButton > button {
+    background: var(--amf3-indigo);
+    color: #FFFFFF;
+    border-color: var(--amf3-indigo);
+}
+
+.st-key-home_card_precificacao .stButton > button:hover {
+    background: #FFFFFF;
+    color: var(--amf3-indigo);
 }
 
 /* ---------- Rodapé ---------- */
 
 .amf3-rodape {
     text-align: center;
-    color: #8a8780;
+    color: var(--amf3-texto-mudo);
     font-family: var(--amf3-fonte-corpo);
     font-size: 0.78rem;
     line-height: 1.6;

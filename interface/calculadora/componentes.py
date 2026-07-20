@@ -19,6 +19,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from config import GRAFICO_SUPERFICIE_ESCURA
+from interface.icones import icone
 from src.calculadora.fluxo import novo_item
 from src.calculadora.models import Cenario, FluxoItem, TipoFluxoItem
 from src.utils import formatar_moeda
@@ -113,7 +114,7 @@ def campo_moeda(label: str, valor_padrao: float, key: str | None = None, **kwarg
     kwargs.setdefault("min_value", 0.0)
     kwargs.setdefault("step", 1000.0)
     valor = st.number_input(label, value=valor_padrao, key=key, **kwargs)
-    st.caption(f"💰 {formatar_moeda(valor)}")
+    st.caption(f"{icone('moeda')} {formatar_moeda(valor)}")
     return valor
 
 

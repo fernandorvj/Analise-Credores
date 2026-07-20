@@ -72,7 +72,7 @@ def _assistente_ia_texto_livre() -> None:
     financiamento em parâmetros que pré-preenchem o formulário abaixo — a IA
     apenas interpreta o texto, nunca realiza nenhum cálculo financeiro.
     """
-    with st.expander("🧠 Assistente IA — descreva o financiamento em texto livre"):
+    with st.expander("Assistente IA — descreva o financiamento em texto livre", icon=icone("ia")):
         st.caption(
             'Ex.: "Financiamento de R$ 200.000, entrada de R$ 20.000, taxa de 1,8% ao mês, 36 '
             'parcelas mensais pela Tabela Price, com 3 meses de carência." Os valores identificados '

@@ -56,7 +56,7 @@ def _processar_arquivo(arquivo) -> tuple[AnaliseDocumento, str] | None:
         barra = st.progress(0.0)
 
         def _concluir_fase(indice: int) -> None:
-            st.write(f"✓ {_FASES[indice]}")
+            st.write(f"{icone('concluido')} {_FASES[indice]}")
             barra.progress((indice + 1) / len(_FASES))
 
         try:
@@ -100,7 +100,7 @@ def _processar_link(url: str) -> tuple[AnaliseDocumento, str] | None:
         barra = st.progress(0.0)
 
         def _concluir_fase(indice: int) -> None:
-            st.write(f"✓ {_FASES[indice]}")
+            st.write(f"{icone('concluido')} {_FASES[indice]}")
             barra.progress((indice + 1) / len(_FASES))
 
         try:

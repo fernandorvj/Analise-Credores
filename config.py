@@ -83,16 +83,17 @@ def possui_protecao_por_senha() -> bool:
 # validador de paleta categórica (dataviz skill) — ΔE mínimo adjacente 21.6.
 
 CORES = {
-    "primaria": "#242288",       # indigo da marca (logo "3", títulos, UI primária)
-    "secundaria": "#373435",     # carvão da marca (texto "AMF", texto principal)
-    "destaque": "#B87A12",       # âmbar (acento, categórico slot 2)
-    "fundo": "#FAFAFA",          # canvas claro do redesign (evoluído do cinza institucional)
-    "texto": "#373435",
+    "primaria": "#1B1B26",       # tinta quase-preta (bordas, botões, ícones — identidade v3 neobrutalista)
+    "secundaria": "#14141A",     # texto principal, quase preto
+    "destaque": "#B87A12",       # âmbar (mantido como acento categórico de gráfico, ver nota abaixo)
+    "fundo": "#FFFFFF",          # canvas branco — contraste vem das bordas grossas, não do fundo
+    "texto": "#14141A",
     "sucesso": "#0CA30C",        # status: ok
-    "alerta": "#FAB219",         # status: revisar
+    "alerta": "#E8A400",         # status: revisar
     "erro": "#D03B3B",           # status: erro
-    "informacao": "#3633CC",     # status: informativo (mesmo tom do indigo claro, já validado)
-    "grafico_indigo": "#3633CC", # indigo p/ gráficos de série única (mesmo valor de classe_1)
+    "informacao": "#2D6CDF",     # status: informativo (azul, independente da tinta/marca agora)
+    "grafico_indigo": "#3633CC", # indigo p/ gráficos de série única (mesmo valor de classe_1) — cor de dado, não de marca, não alterar
+    "verde_neon": "#B9FF66",     # accent principal da identidade v3 (era o âmbar/dourado da v2)
 }
 
 # Paleta categórica para gráficos por classe (ordem fixa — nunca reordenar por
@@ -118,7 +119,7 @@ CLASSE_CORES_ESCURO = {
     "Classe IV - ME/EPP": "#C25FB0",
 }
 CLASSE_COR_PADRAO_ESCURO = "#8A8780"
-GRAFICO_SUPERFICIE_ESCURA = "#1B1930"
+GRAFICO_SUPERFICIE_ESCURA = "#1B1B26"  # sincronizado com [class*="st-key-amf3_grafico_"] em estilos.css
 
 NOME_EMPRESA = "AMF3 Capital"
 NOME_SISTEMA = "RJ Análise de Credores"

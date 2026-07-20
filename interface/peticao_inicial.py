@@ -27,7 +27,7 @@ from src.models_peticao_inicial import (
     RelatorioPeticaoInicial,
 )
 
-_ICONE_GRAU_ATENCAO = {"Baixo": "🟢", "Médio": "🟡", "Alto": "🔴"}
+_ICONE_GRAU_ATENCAO = {"Baixo": icone("aprovado"), "Médio": icone("alerta"), "Alto": icone("erro")}
 
 _FASES = [
     "Lendo PDF",
@@ -54,7 +54,7 @@ def _processar_peticao(arquivo) -> RelatorioPeticaoInicial | None:
         barra = st.progress(0.0)
 
         def _concluir_fase(indice: int) -> None:
-            st.write(f"✓ {_FASES[indice]}")
+            st.write(f"{icone('concluido')} {_FASES[indice]}")
             barra.progress((indice + 1) / len(_FASES))
 
         paginas = leitor_pdf.ler_pdf(caminho_pdf)
@@ -100,24 +100,24 @@ def _renderizar_card_passivo_fiscal(relatorio: RelatorioPeticaoInicial) -> None:
     """
     pf = relatorio.passivo_fiscal
     with st.container(border=True):
-        st.markdown("#### 🧾 Passivo Fiscal e Execuções Fiscais")
+        st.markdown(f"#### {icone('fiscal')} Passivo Fiscal e Execuções Fiscais")
         if pf.localizado:
-            st.warning("⚠️ Localizado")
+            st.warning("Localizado")
         else:
-            st.success("✅ Não localizado")
+            st.success("Não localizado")
 
         col_valor, col_execucao, col_qtd, col_orgaos = st.columns(4)
         with col_valor:
-            st.metric("💰 Valor do Passivo Fiscal", pf.valor_passivo_fiscal)
+            st.metric(f"{icone('moeda')} Valor do Passivo Fiscal", pf.valor_passivo_fiscal)
         with col_execucao:
-            st.metric("💰 Valor das Execuções", pf.valor_execucoes_fiscais)
+            st.metric(f"{icone('moeda')} Valor das Execuções", pf.valor_execucoes_fiscais)
         with col_qtd:
-            st.metric("📄 Nº de Execuções/Processos", pf.quantidade_processos)
+            st.metric(f"{icone('peticao_inicial')} Nº de Execuções/Processos", pf.quantidade_processos)
         with col_orgaos:
             orgaos_texto = ", ".join(pf.orgaos_envolvidos) if pf.orgaos_envolvidos else "Não localizado"
-            st.metric("🏛 Órgãos Envolvidos", orgaos_texto)
+            st.metric(f"{icone('orgao')} Órgãos Envolvidos", orgaos_texto)
 
-        icone_grau = _ICONE_GRAU_ATENCAO.get(pf.grau_atencao, "🟢")
+        icone_grau = _ICONE_GRAU_ATENCAO.get(pf.grau_atencao, icone("aprovado"))
         st.caption(f"Grau de Atenção: {icone_grau} {pf.grau_atencao}")
 
 
@@ -158,7 +158,7 @@ def _renderizar_passivo_fiscal(pf: PassivoFiscal) -> None:
     st.markdown(pf.avaliacao_estrategica or "_Sem conteúdo gerado para esta seção._")
 
     st.markdown("##### Grau de Atenção")
-    icone_grau = _ICONE_GRAU_ATENCAO.get(pf.grau_atencao, "🟢")
+    icone_grau = _ICONE_GRAU_ATENCAO.get(pf.grau_atencao, icone("aprovado"))
     st.markdown(f"{icone_grau} **{pf.grau_atencao}**")
     if pf.justificativa_grau_atencao:
         st.caption(pf.justificativa_grau_atencao)

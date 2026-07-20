@@ -77,7 +77,7 @@ def _processar_pdf(arquivo) -> ExtracaoPlanoPorClasse | None:
         barra = st.progress(0.0)
 
         def _concluir_fase(indice: int) -> None:
-            st.write(f"✓ {_FASES_PDF[indice]}")
+            st.write(f"{icone('concluido')} {_FASES_PDF[indice]}")
             barra.progress((indice + 1) / len(_FASES_PDF))
 
         paginas = leitor_pdf.ler_pdf_robusto(caminho_pdf)
@@ -112,7 +112,7 @@ def _processar_texto_colado(texto: str) -> ExtracaoPlanoPorClasse | None:
         barra = st.progress(0.0)
 
         def _concluir_fase(indice: int) -> None:
-            st.write(f"✓ {_FASES_TEXTO[indice]}")
+            st.write(f"{icone('concluido')} {_FASES_TEXTO[indice]}")
             barra.progress((indice + 1) / len(_FASES_TEXTO))
 
         _concluir_fase(0)
@@ -521,7 +521,7 @@ def _grafico_evolucao_saldo(resultado: ResultadoPrecificacaoClasse) -> go.Figure
 def _renderizar_resultado(resultado: ResultadoPrecificacaoClasse) -> None:
     if not resultado.metodologia_validada:
         st.warning(
-            "⚠️ Metodologia de cálculo (cronograma unificado, casamento de período e descapitalização "
+            "Metodologia de cálculo (cronograma unificado, casamento de período e descapitalização "
             "linha por linha) ainda pendente de validação final contra a planilha oficial de VPL da "
             "AMF3 Capital. Trate os números abaixo como uma estimativa até a confirmação."
         )
@@ -705,7 +705,7 @@ def renderizar_precificacao() -> None:
         "Fonte da Taxa de Desconto", "SELIC", "prec_desconto", permitir_nenhum=False
     )
 
-    if st.button("🧮 Calcular Precificação", type="primary", icon=icone("precificacao"), key="prec_btn_calcular"):
+    if st.button("Calcular Precificação", type="primary", icon=icone("precificacao"), key="prec_btn_calcular"):
         try:
             if usar_projecao:
                 parametros_projecao = ParametrosCalculoClasseComProjecao(
