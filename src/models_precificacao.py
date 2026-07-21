@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
+from src.calculadora.models import Periodicidade
 from src.models_peticao_inicial import NAO_LOCALIZADO
 
 
@@ -189,3 +190,17 @@ class ResultadoPrecificacaoClasse:
     # False até a metodologia ser comparada e confirmada equivalente à
     # planilha oficial da AMF3 — ver ETAPA de validação do módulo.
     metodologia_validada: bool = False
+
+    # --- Campos para a Ficha Resumo (mesma estrutura da planilha VPL.xlsx de
+    # referência da AMF3: Crédito / Deságio / Prazo / Carência / Juros / Taxa
+    # de Descap / Saldo Pós-Deságio / Saldo Pós-Carência / Saldo Final / VPL).
+    # `None` quando o conceito não se aplica ao caminho de cálculo usado
+    # (ex.: projeção de fluxo pronta não tem um "deságio" numérico próprio).
+    periodicidade: Periodicidade | None = None
+    desagio_percentual: Decimal | None = None  # fração, ex.: 0.85 = 85%
+    carencia_periodos: int | None = None  # nº de períodos (na `periodicidade` acima) sem pagamento
+    numero_parcelas: int | None = None  # nº de períodos COM pagamento (exclui carência)
+    taxa_juros_periodo: Decimal | None = None  # juros do plano (Price) ou correção monetária, no período-molde
+    saldo_pos_desagio: Decimal | None = None  # C0 × (1 − deságio)
+    saldo_pos_carencia: Decimal | None = None  # saldo no início do 1º período de pagamento
+    saldo_final: Decimal | None = None  # saldo devedor ao final do cronograma (≈ 0 se tudo amortizado)

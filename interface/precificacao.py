@@ -28,9 +28,9 @@ from interface.calculadora.componentes import aplicar_tema_escuro_grafico, campo
 from interface.componentes_ui import renderizar_preview_arquivo, tabela_premium
 from interface.icones import icone
 from src import ia, leitor_pdf
-from src.calculadora.amortizacao import adicionar_periodos
+from src.calculadora.amortizacao import adicionar_periodos, converter_taxa
 from src.calculadora.indices import obter_cdi_bacen, obter_igpm_12m_bacen, obter_ipca_12m_bacen, obter_tr_bacen
-from src.calculadora.models import Periodicidade
+from src.calculadora.models import Periodicidade, RegimeJuros
 from src.calculadora.precificacao_motor import (
     LinhaCronogramaPercentual,
     LinhaFluxoInformado,
@@ -700,6 +700,74 @@ def _renderizar_resultado(resultado: ResultadoPrecificacaoClasse) -> None:
             "AMF3 Capital. Trate os números abaixo como uma estimativa até a confirmação."
         )
 
+    st.markdown("#### Ficha Resumo")
+    st.caption("Mesma estrutura da planilha VPL.xlsx de referência da AMF3 Capital.")
+    meses_por_periodo = resultado.periodicidade.meses if resultado.periodicidade else None
+
+    def _periodos_em_meses(periodos: int | None) -> str:
+        if periodos is None:
+            return "N/A"
+        if meses_por_periodo is None:
+            return str(periodos)
+        return str(periodos * meses_por_periodo)
+
+    def _carencia_em_meses() -> str:
+        # "Carência" aqui é o prazo até o VENCIMENTO da 1ª parcela (o jeito
+        # como o Plano de RJ normalmente declara isso, ex.: "vencendo-se a
+        # primeira ao final do 24.º mês") — não apenas a contagem de
+        # períodos com pagamento zero: com períodos ANUAIS, 1 período de
+        # carência (Ano 1: 0%) ainda exige que o Ano 2 (o 1º período pago)
+        # se complete, então a 1ª parcela só vence no mês 24, não no mês 12.
+        if resultado.carencia_periodos is None or meses_por_periodo is None:
+            return "N/A"
+        if not resultado.numero_parcelas:
+            return str(resultado.carencia_periodos * meses_por_periodo)
+        return str((resultado.carencia_periodos + 1) * meses_por_periodo)
+
+    def _pct(valor: Decimal | None) -> str:
+        return formatar_percentual(float(valor)) if valor is not None else "N/A"
+
+    def _rs(valor: Decimal | None) -> str:
+        return formatar_moeda(float(valor)) if valor is not None else "N/A"
+
+    taxa_desconto_am = converter_taxa(
+        resultado.taxa_desconto_anual, Periodicidade.ANUAL, Periodicidade.MENSAL, RegimeJuros.COMPOSTO
+    )
+    if resultado.taxa_juros_periodo is not None and resultado.periodicidade is not None:
+        juros_am = converter_taxa(
+            resultado.taxa_juros_periodo, resultado.periodicidade, Periodicidade.MENSAL, RegimeJuros.COMPOSTO
+        )
+    else:
+        juros_am = None
+
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        st.metric("Crédito", formatar_moeda(float(resultado.valor_nominal_credito)))
+        st.metric("Deságio", _pct(resultado.desagio_percentual))
+        st.metric("Prazo (mês)", _periodos_em_meses(
+            (resultado.carencia_periodos or 0) + (resultado.numero_parcelas or 0)
+            if resultado.numero_parcelas is not None else None
+        ))
+    with col_b:
+        st.metric("Carência (mês)", _carencia_em_meses())
+        st.metric("Juros (a.m.)", _pct(juros_am))
+        st.metric("Taxa de Descap. (a.m.)", _pct(taxa_desconto_am))
+    with col_c:
+        st.metric("Saldo Pós Deságio", _rs(resultado.saldo_pos_desagio))
+        st.metric("Saldo Pós Carência", _rs(resultado.saldo_pos_carencia))
+        st.metric("Saldo Final", _rs(resultado.saldo_final))
+
+    col_vpl, col_pct = st.columns(2)
+    with col_vpl:
+        st.metric("VPL (Valor Presente do Fluxo)", formatar_moeda(float(resultado.vp_total)))
+    with col_pct:
+        st.metric("VPL / Crédito", formatar_percentual(float(resultado.percentual_recuperacao_efetiva) / 100))
+    st.caption(
+        "\"Juros (a.m.)\" reflete a taxa de juros do plano (Tabela Price) ou, quando o plano usa correção "
+        "monetária em vez de juros (ex.: cronograma por percentual), a taxa de correção — convertida para "
+        "equivalente mensal. Campos \"N/A\" não se aplicam ao método de cálculo usado nesta classe."
+    )
+
     st.markdown("#### Resumo Financeiro")
     renderizar_kpis(
         [
@@ -839,7 +907,12 @@ def renderizar_precificacao() -> None:
         )
 
     st.divider()
-    st.markdown("#### Dados da Operação")
+    st.markdown("#### Precificar um Crédito")
+    st.caption(
+        "Informe o crédito e a classe — o cálculo usa automaticamente as condições de pagamento do Plano "
+        "identificadas acima (deságio, carência, cronograma, correção) e a SELIC atual como taxa de desconto, "
+        "exatamente como na planilha de referência."
+    )
     col1, col2 = st.columns(2)
     with col1:
         valor_nominal_credito = campo_moeda("Valor Nominal do Crédito (R$)", 100000.0, min_value=0.01, key="prec_valor_nominal")
@@ -868,34 +941,40 @@ def renderizar_precificacao() -> None:
         "não deste crédito específico",
         "manual": "Informar deságio, carência, juros e parcelas manualmente (Tabela Price)",
     }
-    metodo = (
-        st.radio(
-            "Como calcular o fluxo de pagamentos desta classe?",
-            opcoes_metodo,
-            format_func=lambda k: rotulos_metodo[k],
-            key=f"prec_metodo_{sufixo_chave}",
-        )
-        if len(opcoes_metodo) > 1
-        else opcoes_metodo[0]
+    st.caption(
+        f"Método usado para {classe_escolhida}: **{rotulos_metodo[opcoes_metodo[0]]}**"
+        + ("" if extracao else " — nenhum Plano importado ainda, condições zeradas por padrão.")
     )
 
-    st.divider()
-    if metodo == "cronograma_percentual":
-        linhas_cronograma, periodicidade_cronograma, desagio_cronograma, correcao_indice_cronograma, correcao_taxa_cronograma = (
-            _formulario_cronograma_percentual(cronograma_classe, condicoes_classe, sufixo_chave)
+    with st.expander("Ajustar condições manualmente (opcional)", expanded=False):
+        metodo = (
+            st.radio(
+                "Como calcular o fluxo de pagamentos desta classe?",
+                opcoes_metodo,
+                format_func=lambda k: rotulos_metodo[k],
+                key=f"prec_metodo_{sufixo_chave}",
+            )
+            if len(opcoes_metodo) > 1
+            else opcoes_metodo[0]
         )
-        dados_formulario = None
-    elif metodo == "projecao_pronta":
-        linhas_projecao, periodicidade_projecao = _formulario_projecao_fluxo(projecao_classe, sufixo_chave)
-        dados_formulario = None
-    else:
-        dados_formulario = _formulario_condicoes_classe(condicoes_classe, sufixo_chave)
 
-    st.divider()
-    st.markdown("#### Taxa de Desconto")
-    _, taxa_desconto_anual, origem_taxa_desconto, data_taxa_desconto = _bloco_taxa_indice(
-        "Fonte da Taxa de Desconto", "SELIC", "prec_desconto", permitir_nenhum=False
-    )
+        st.divider()
+        if metodo == "cronograma_percentual":
+            linhas_cronograma, periodicidade_cronograma, desagio_cronograma, correcao_indice_cronograma, correcao_taxa_cronograma = (
+                _formulario_cronograma_percentual(cronograma_classe, condicoes_classe, sufixo_chave)
+            )
+            dados_formulario = None
+        elif metodo == "projecao_pronta":
+            linhas_projecao, periodicidade_projecao = _formulario_projecao_fluxo(projecao_classe, sufixo_chave)
+            dados_formulario = None
+        else:
+            dados_formulario = _formulario_condicoes_classe(condicoes_classe, sufixo_chave)
+
+        st.divider()
+        st.markdown("#### Taxa de Desconto")
+        _, taxa_desconto_anual, origem_taxa_desconto, data_taxa_desconto = _bloco_taxa_indice(
+            "Fonte da Taxa de Desconto", "SELIC", "prec_desconto", permitir_nenhum=False
+        )
 
     if st.button("Calcular Precificação", type="primary", icon=icone("precificacao"), key="prec_btn_calcular"):
         try:

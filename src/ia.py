@@ -14,7 +14,14 @@ from typing import Callable
 
 from openai import OpenAI, OpenAIError
 
-from config import CLASSES_RJ_PADRAO, OPENAI_API_KEY, OPENAI_MODEL, configurar_logging, possui_chave_openai
+from config import (
+    CLASSES_RJ_PADRAO,
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+    OPENAI_MODEL_PRECIFICACAO,
+    configurar_logging,
+    possui_chave_openai,
+)
 from src import analise_quorum, estrategia
 from src.leitor_pdf import PaginaExtraida
 from src.models import ResultadoExtracao
@@ -95,13 +102,19 @@ def _montar_contexto(resultado: ResultadoExtracao) -> dict:
     }
 
 
-def _chamar_modelo_bruto(mensagens: list[dict], temperatura: float, response_format: dict | None = None) -> str:
+def _chamar_modelo_bruto(
+    mensagens: list[dict], temperatura: float, response_format: dict | None = None, modelo: str | None = None
+) -> str:
     """Plumbing única de chamada ao modelo (cliente + tratamento de erro) —
     usada tanto por `_chamar_modelo` (Credores) quanto pela orquestração da
     Petição Inicial mais abaixo, para não duplicar o try/except de erro.
+    `modelo` permite sobrepor `OPENAI_MODEL` em chamadas específicas que
+    precisam de mais capacidade de raciocínio (ex.: extração de condições de
+    pagamento de Plano de RJ, onde o modelo padrão já demonstrou confundir
+    percentuais adjacentes num mesmo parágrafo).
     """
     try:
-        kwargs: dict = {"model": OPENAI_MODEL, "messages": mensagens, "temperature": temperatura}
+        kwargs: dict = {"model": modelo or OPENAI_MODEL, "messages": mensagens, "temperature": temperatura}
         if response_format is not None:
             kwargs["response_format"] = response_format
         resposta = _client().chat.completions.create(**kwargs)
@@ -313,7 +326,7 @@ def _prompt_reducao(arquivo_nome: str, texto_fonte: str) -> str:
     )
 
 
-def _chamar_modelo_json(prompt: str, instrucoes: str, temperatura: float = 0.2) -> dict:
+def _chamar_modelo_json(prompt: str, instrucoes: str, temperatura: float = 0.2, modelo: str | None = None) -> dict:
     """Chama o modelo pedindo `response_format=json_object`; em caso de falha
     de parse, tenta mais uma vez com temperatura 0 e instrução reforçada.
     Se falhar de novo, propaga `json.JSONDecodeError` — o chamador decide o
@@ -323,7 +336,9 @@ def _chamar_modelo_json(prompt: str, instrucoes: str, temperatura: float = 0.2) 
         {"role": "system", "content": instrucoes},
         {"role": "user", "content": prompt},
     ]
-    texto = _chamar_modelo_bruto(mensagens, temperatura=temperatura, response_format={"type": "json_object"})
+    texto = _chamar_modelo_bruto(
+        mensagens, temperatura=temperatura, response_format={"type": "json_object"}, modelo=modelo
+    )
     try:
         return json.loads(texto)
     except json.JSONDecodeError:
@@ -336,7 +351,7 @@ def _chamar_modelo_json(prompt: str, instrucoes: str, temperatura: float = 0.2) 
             {"role": "user", "content": prompt},
         ]
         texto_retry = _chamar_modelo_bruto(
-            mensagens_reforcadas, temperatura=0.0, response_format={"type": "json_object"}
+            mensagens_reforcadas, temperatura=0.0, response_format={"type": "json_object"}, modelo=modelo
         )
         return json.loads(texto_retry)
 
@@ -713,7 +728,15 @@ def _prompt_reducao_plano_classe(arquivo_nome: str, texto_fonte: str) -> str:
         "pagamento, não o deságio). SÓ quando a cláusula da classe NÃO usar a palavra 'deságio' em "
         "nenhum momento, trate 'pagamento de X% dos créditos' como equivalente ao deságio de X% "
         "daquela própria classe — preencha 'desagio' com esse X%, nunca com o percentual de deságio de "
-        "outra classe. IMPORTANTE: nunca copie um trecho, percentual, "
+        "outra classe. EXEMPLO CONCRETO desse cuidado: a cláusula 'pagamento de 15% (quinze por cento) "
+        "do valor dos créditos [...] considerando deságio em 85% (oitenta e cinco por cento)' tem DOIS "
+        "percentuais — o deságio correto aqui é 85%, não 15% (15% é só o percentual efetivamente pago, "
+        "o complemento aritmético do deságio: 100% − 85% = 15%). Da mesma forma, para carência: a "
+        "cláusula 'vencendo-se a primeira [parcela] ao final do 24.º (vigésimo quarto) mês da data da "
+        "publicação' dá uma carência de 24 MESES (2 anos) — transcreva o número exatamente como está no "
+        "texto ('24 meses' ou '24.º mês'), nunca arredonde, converta ou resuma para uma unidade "
+        "diferente (não escreva '1 ano' nem '2 anos' se o texto diz '24 meses' — preserve a unidade e o "
+        "número literais do documento). IMPORTANTE: nunca copie um trecho, percentual, "
         "prazo ou data de uma classe para outra — cada informação vai apenas na classe (ou em "
         "'condicoes_gerais') a que ela pertence de fato no texto original. Isso vale mesmo quando a "
         "classe tem uma cláusula de teto/limite/conversão (ex.: 'o que exceder de X salários-mínimos "
@@ -984,6 +1007,7 @@ def extrair_condicoes_plano(
                     {"role": "user", "content": prompt_mapa},
                 ],
                 temperatura=0.2,
+                modelo=OPENAI_MODEL_PRECIFICACAO,
             )
             notas_blocos.append(f"=== Notas do bloco {indice}/{len(blocos)} ===\n{nota}")
         avisos.append(
@@ -995,7 +1019,9 @@ def extrair_condicoes_plano(
     avisar("Extraindo condições de pagamento por classe...")
     prompt_final = _prompt_reducao_plano_classe(arquivo_nome, texto_fonte)
     try:
-        dados = _chamar_modelo_json(prompt_final, _INSTRUCOES_PRECIFICACAO, temperatura=0.2)
+        dados = _chamar_modelo_json(
+            prompt_final, _INSTRUCOES_PRECIFICACAO, temperatura=0.2, modelo=OPENAI_MODEL_PRECIFICACAO
+        )
     except json.JSONDecodeError:
         logger.error("Não foi possível interpretar a resposta da IA como JSON para '%s'.", arquivo_nome)
         mensagem_falha = (

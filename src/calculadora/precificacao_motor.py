@@ -245,6 +245,16 @@ def calcular_precificacao_classe(parametros: ParametrosCalculoClasse) -> Resulta
         percentual_recuperacao_efetiva=percentual_recuperacao,
         memoria_calculo=memoria,
         metodologia_validada=False,
+        periodicidade=parametros.periodicidade,
+        desagio_percentual=parametros.desagio,
+        carencia_periodos=parametros.carencia_periodos,
+        numero_parcelas=parametros.numero_parcelas,
+        taxa_juros_periodo=parametros.juros,
+        saldo_pos_desagio=valor_pos_desagio,
+        saldo_pos_carencia=(
+            next((item.saldo_inicial for item in fluxo if not item.carencia), valor_pos_desagio)
+        ),
+        saldo_final=fluxo[-1].saldo_final if fluxo else valor_pos_desagio,
     )
 
 
@@ -371,6 +381,8 @@ def calcular_precificacao_classe_com_projecao(
         percentual_recuperacao_efetiva=percentual_recuperacao,
         memoria_calculo=memoria,
         metodologia_validada=False,
+        periodicidade=parametros.periodicidade,
+        numero_parcelas=len(parametros.linhas),
     )
 
 
@@ -539,4 +551,14 @@ def calcular_precificacao_classe_com_cronograma_percentual(
         percentual_recuperacao_efetiva=percentual_recuperacao,
         memoria_calculo=memoria,
         metodologia_validada=False,
+        periodicidade=parametros.periodicidade,
+        desagio_percentual=parametros.desagio,
+        carencia_periodos=sum(1 for linha in parametros.linhas if linha.percentual == 0),
+        numero_parcelas=sum(1 for linha in parametros.linhas if linha.percentual != 0),
+        taxa_juros_periodo=correcao_periodo if aplica_correcao else Decimal(0),
+        saldo_pos_desagio=valor_pos_desagio,
+        saldo_pos_carencia=valor_pos_desagio,
+        saldo_final=arredondar(
+            valor_pos_desagio * (Decimal(1) - sum((linha.percentual for linha in parametros.linhas), Decimal(0)))
+        ),
     )

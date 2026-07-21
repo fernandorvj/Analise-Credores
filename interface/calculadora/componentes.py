@@ -155,9 +155,17 @@ def campo_moeda(
         return valor
 
     def _sincronizar() -> None:
-        valor = parse_valor_brl(st.session_state[chave_texto])
+        # Acesso defensivo: em produção (Streamlit Cloud) já foi observado o
+        # callback disparar numa rerun em que `chave_texto`/`chave_valor`
+        # ainda não estão presentes em session_state (ex.: quando o widget
+        # está dentro de um bloco condicional que mudou entre a interação e
+        # o processamento do callback) — sem isso o app derruba com KeyError.
+        texto_atual = st.session_state.get(chave_texto)
+        if texto_atual is None:
+            return
+        valor = parse_valor_brl(texto_atual)
         if valor is None:
-            valor = st.session_state[chave_valor]
+            valor = st.session_state.get(chave_valor, valor_padrao)
         valor = _aplicar_limites(valor)
         st.session_state[chave_valor] = valor
         st.session_state[chave_texto] = formatar_moeda(valor).replace("R$ ", "")

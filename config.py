@@ -62,6 +62,12 @@ def _obter_segredo(nome: str, padrao: str = "") -> str:
 
 OPENAI_API_KEY = _obter_segredo("OPENAI_API_KEY")
 OPENAI_MODEL = _obter_segredo("OPENAI_MODEL", "gpt-4o-mini")
+# Extração de condições de pagamento de Plano de RJ (Precificação Inteligente)
+# exige mais capacidade de leitura/raciocínio jurídico do que o padrão barato
+# acima — em teste real (Plano Grupo Alliance), o modelo padrão confundiu um
+# "pagamento de 15%" com o "deságio de 85%" da mesma cláusula. Configurável
+# separadamente via secret; cai para OPENAI_MODEL se não houver override.
+OPENAI_MODEL_PRECIFICACAO = _obter_segredo("OPENAI_MODEL_PRECIFICACAO", "gpt-4o") or OPENAI_MODEL
 APP_USERNAME = _obter_segredo("APP_USERNAME")  # se vazio, o app fica sem proteção por login
 APP_PASSWORD = _obter_segredo("APP_PASSWORD")
 
