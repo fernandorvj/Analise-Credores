@@ -14,6 +14,7 @@ from typing import Callable
 
 import fitz  # PyMuPDF
 import pdfplumber
+from PIL import Image
 
 from config import configurar_logging
 from src import ocr
@@ -147,13 +148,6 @@ def reconstruir_texto_por_posicao(pagina: pdfplumber.page.Page, numero_pagina: i
     return PaginaExtraida(numero=numero_pagina, texto="\n".join(linhas_texto), tabelas=tabelas, fonte="digital")
 
 
-def _extrair_pagina_ocr(caminho_pdf: str | Path, numero_pagina: int) -> PaginaExtraida:
-    with fitz.open(caminho_pdf) as doc:
-        pagina = doc[numero_pagina - 1]
-        texto = ocr.ocr_pagina_pdf(pagina)
-    return PaginaExtraida(numero=numero_pagina, texto=texto, tabelas=[], fonte="ocr")
-
-
 def _ler_pdf(
     caminho_pdf: str | Path,
     extrair_digital: Callable[[pdfplumber.page.Page, int], PaginaExtraida],
@@ -165,6 +159,13 @@ def _ler_pdf(
     Nunca falha silenciosamente: páginas escaneadas sem Tesseract disponível são
     retornadas com texto vazio e fonte "ocr_indisponivel", para que o parser e a
     interface possam sinalizar o problema ao usuário em vez de omitir credores.
+
+    Todas as páginas escaneadas são renderizadas primeiro e a rotação é
+    detectada UMA VEZ para o documento inteiro (`ocr.detectar_rotacao_documento`),
+    em vez de página a página — digitalizações em lote (o caso comum) têm
+    sempre a mesma orientação em todas as páginas, e juntar o sinal de OCR de
+    todas elas antes de decidir evita que uma página com pouco conteúdo
+    (comum na última página de uma relação) erre a rotação sozinha.
     """
     caminho_pdf = Path(caminho_pdf)
     triagem = triar_paginas(caminho_pdf)
@@ -178,14 +179,23 @@ def _ler_pdf(
             paginas_escaneadas,
         )
 
+    imagens_escaneadas: dict[int, Image.Image] = {}
+    rotacao_documento = 0
+    if paginas_escaneadas and ocr_ok:
+        with fitz.open(caminho_pdf) as doc:
+            for numero in paginas_escaneadas:
+                imagens_escaneadas[numero] = ocr.renderizar_pagina_como_imagem(doc[numero - 1])
+        rotacao_documento = ocr.detectar_rotacao_documento(list(imagens_escaneadas.values()))
+
     paginas: list[PaginaExtraida] = []
     with pdfplumber.open(caminho_pdf) as pdf:
         for numero, digital in sorted(triagem.items()):
             if digital:
                 paginas.append(extrair_digital(pdf.pages[numero - 1], numero))
             elif ocr_ok:
-                logger.info("Página %d escaneada — aplicando OCR.", numero)
-                paginas.append(_extrair_pagina_ocr(caminho_pdf, numero))
+                logger.info("Página %d escaneada — aplicando OCR (rotação %d°).", numero, rotacao_documento)
+                texto = ocr.ocr_imagem_com_rotacao(imagens_escaneadas[numero], rotacao_documento)
+                paginas.append(PaginaExtraida(numero=numero, texto=texto, tabelas=[], fonte="ocr"))
             else:
                 paginas.append(
                     PaginaExtraida(numero=numero, texto="", tabelas=[], fonte="ocr_indisponivel")

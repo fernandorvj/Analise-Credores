@@ -309,6 +309,128 @@ def _extrair_de_texto(pagina: PaginaExtraida, proximo_id: int) -> list[Credor]:
     return credores
 
 
+# --- Extração de "tabela dinâmica" (Classe / Tipo / Credor / Soma de Valor) -
+#
+# Algumas relações de credores vêm de uma exportação de planilha (tabela
+# dinâmica do Excel: "Soma de VALOR") em vez de um relatório do processo —
+# não têm CPF/CNPJ nenhum, só a classificação (Classe/Tipo) e o nome do
+# credor por linha. `_extrair_de_linha_texto`/`_extrair_de_blocos` não
+# servem aqui (dependem de um documento como âncora). Este parser usa a
+# palavra "CLASSE" (ou um rótulo especial como "EXTRACONCURSAL") no início
+# da linha como âncora, e as colunas internas (Tipo/Credor) pela separação
+# de 2+ espaços que `src.ocr._reconstruir_texto_por_posicao` já insere nos
+# vãos entre colunas de uma página escaneada.
+#
+# Só é tentado quando `_extrair_de_texto` (âncora por CPF/CNPJ) não achou
+# nada de válido na página — evita competir com formatos que já funcionam.
+
+_RE_ROTULO_TABELA = re.compile(r"^(?i:classe)\b|^[A-ZÀ-Ü][A-ZÀ-Ü\s]*$")
+
+
+_RE_TOKEN_ROMANO_RUIDOSO = re.compile(r"^classe\s+([ivl|!]+)$", re.IGNORECASE)
+
+
+def _identificar_classe_tabela(rotulo_bruto: str) -> str:
+    """Como `_identificar_classe`, mas também resolve o algarismo romano
+    quando o OCR confunde "I" com barra vertical ("|")/"l" minúsculo/"!"
+    (fonte condensada comum em tabelas escaneadas) — só quando esse ruído
+    está de fato presente no token; um "CLASSE II"/"CLASSE III" limpo (só
+    "I"/"V" reais) continua resolvido por `_identificar_classe`, como em
+    qualquer outro parser deste módulo.
+
+    Variantes reais observadas em produção para o mesmo "III": "||", "|l",
+    "|ll", "II|", "IIl", "II|l" (2 a 4 traços, alguns deles com "I"
+    reais misturados a ruído — por isso não dá pra confiar em
+    `_identificar_classe` sozinho: "CLASSE II|" bate o "\\b" de
+    "classe ii\\b" e seria lido como Classe II de verdade) — confirmado
+    batendo o "Total Geral" impresso no documento contra a soma extraída, e
+    a ausência de qualquer variante "limpa" de "CLASSE II" em todo o
+    documento. Sem outro sinal, 2+ traços com ruído e sem "V" é tratado como
+    III (Quirografário) — a classe disparadamente mais comum para credores
+    Banco/Fornecedor nesse formato.
+    """
+    rotulo_limpo = limpar_espacos(rotulo_bruto)
+    match = _RE_TOKEN_ROMANO_RUIDOSO.match(rotulo_limpo)
+    token = match.group(1).upper() if match else ""
+    tem_ruido = any(c in "L|!" for c in token)
+
+    if match and tem_ruido:
+        if "V" in token:
+            return "Classe IV - ME/EPP"
+        tracos = sum(1 for c in token if c in "IL|!")
+        return "Classe I - Trabalhista" if tracos <= 1 else "Classe III - Quirografário"
+
+    classe = _identificar_classe(rotulo_bruto)
+    if classe != "Não identificada":
+        return classe
+    return rotulo_limpo or "Não identificada"
+
+
+def _extrair_de_tabela_sem_documento(
+    pagina: PaginaExtraida, proximo_id: int, resultado: ResultadoExtracao
+) -> list[Credor]:
+    credores: list[Credor] = []
+    for linha_bruta in pagina.texto.splitlines():
+        # Não usa `limpar_espacos` na linha inteira ANTES de dividir por
+        # coluna: ele colapsaria o próprio separador de coluna (2+ espaços)
+        # que `src.ocr._reconstruir_texto_por_posicao` insere nos vãos entre
+        # colunas — cada célula é limpa individualmente depois de dividida.
+        linha = linha_bruta.strip()
+        if not linha:
+            continue
+
+        partes = re.split(r"\s{2,}", linha)
+        if len(partes) < 2:
+            continue
+
+        rotulo_classe = limpar_espacos(partes[0])
+        eh_total = _PADRAO_TOTAL_GERAL.match(rotulo_classe) or _PADRAO_SUBTOTAL.match(rotulo_classe)
+        # As linhas de "Total Geral"/"Sub-total" do próprio documento têm
+        # rótulo em Title Case (não CAIXA ALTA como "CLASSE ..."/"EXTRACONCURSAL")
+        # — checadas antes do filtro de formato de rótulo abaixo, que as rejeitaria.
+        if not eh_total and not _RE_ROTULO_TABELA.match(rotulo_classe):
+            continue  # não parece uma linha desta tabela (não começa com "CLASSE"/rótulo em caixa alta)
+
+        valor = parse_valor_brl(partes[-1])
+        if valor is None:
+            continue  # última "coluna" não é um valor monetário -> não é linha de dados
+
+        if _PADRAO_TOTAL_GERAL.match(rotulo_classe):
+            resultado.total_geral_documento = valor
+            continue
+        if _PADRAO_SUBTOTAL.match(rotulo_classe):
+            continue
+
+        if len(partes) >= 4:
+            nome = limpar_espacos(" ".join(partes[2:-1]))
+        elif len(partes) == 3:
+            nome = limpar_espacos(partes[1])
+        else:
+            continue  # só rótulo + valor, sem nome identificável
+
+        if not nome:
+            continue
+
+        classe = _identificar_classe_tabela(rotulo_classe)
+        status, observacoes = _avaliar_qualidade(nome, "", False, valor, classe)
+        credores.append(
+            Credor(
+                id=proximo_id + len(credores),
+                nome=nome,
+                documento="",
+                tipo_documento=TipoDocumento.INDEFINIDO,
+                classe=classe,
+                valor=valor,
+                pagina=pagina.numero,
+                status_leitura=status,
+                observacoes=observacoes,
+                texto_origem=linha,
+            )
+        )
+
+    return credores
+
+
 # --- Extração por "ficha" (um campo por bloco de texto) -----------------
 #
 # Alguns PDFs escaneados (gerados de formulário) trazem cada credor como uma
@@ -558,10 +680,13 @@ def parsear_credores(paginas: list[PaginaExtraida], arquivo_nome: str) -> Result
         # serve para o layout desta página (um único "match" de nome sem valor,
         # ou vice-versa, é sinal de falso-positivo — ex.: um número de
         # protocolo/ID confundido com documento — não de uma extração boa) —
-        # tenta, nesta ordem, o formato de edital ("CLASSE X - ...: NOME - R$
+        # tenta, nesta ordem, a tabela dinâmica sem documento (Classe/Tipo/
+        # Credor/Valor), o formato de edital ("CLASSE X - ...: NOME - R$
         # VALOR; ...") e o de "ficha por credor" (um campo por linha), antes de
         # aceitar o resultado vazio.
         if not any(c.nome != _NOME_NAO_IDENTIFICADO and c.valor is not None for c in credores_texto):
+            credores_texto = _extrair_de_tabela_sem_documento(pagina, proximo_id, resultado)
+        if not credores_texto:
             credores_texto, classe_atual_edital, fragmento_pendente_edital = _extrair_de_edital(
                 pagina, proximo_id, classe_atual_edital, fragmento_pendente_edital
             )
