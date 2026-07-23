@@ -148,6 +148,55 @@ def reconstruir_texto_por_posicao(pagina: pdfplumber.page.Page, numero_pagina: i
     return PaginaExtraida(numero=numero_pagina, texto="\n".join(linhas_texto), tabelas=tabelas, fonte="digital")
 
 
+_MIN_LINHAS_CABECALHO_REPETIDO = 2  # abaixo disso, coincidência demais pra confiar
+_MAX_LINHAS_CABECALHO_REPETIDO = 12
+_FRACAO_MIN_PAGINAS_COM_CABECALHO = 0.6
+
+
+def _remover_cabecalho_repetido(paginas: list[PaginaExtraida]) -> None:
+    """Remove, de cada página, um cabeçalho que se repete verbatim nas
+    primeiras linhas da maioria das páginas do documento (mutação in-place).
+
+    Comum em editais/relatórios judiciais de várias páginas: o timbre do
+    tribunal/comarca/vara/endereço é reimpresso no topo de TODA página. Isso
+    não atrapalha um humano lendo, mas gruda no início do primeiro credor de
+    cada página quando um parser de texto corrido trata a página inteira
+    como continuação de uma lista (ver `_extrair_de_edital` em
+    `parser_credores.py`) sem nenhum separador marcando onde o cabeçalho
+    termina e o conteúdo real começa.
+
+    Só remove um bloco que aparece, LINHA POR LINHA IDÊNTICO, no início de
+    pelo menos `_FRACAO_MIN_PAGINAS_COM_CABECALHO` das páginas — nunca chuta
+    com base em parecença, e páginas cujo texto não começa com esse bloco
+    exato ficam intocadas.
+    """
+    paginas_com_texto = [p for p in paginas if p.texto.strip()]
+    if len(paginas_com_texto) < 2:
+        return
+
+    linhas_por_pagina = [p.texto.splitlines() for p in paginas_com_texto]
+    limite = min(min(len(linhas) for linhas in linhas_por_pagina), _MAX_LINHAS_CABECALHO_REPETIDO)
+
+    tamanho_cabecalho = 0
+    for i in range(limite):
+        linha_referencia = linhas_por_pagina[0][i]
+        if not linha_referencia.strip():
+            break
+        ocorrencias = sum(1 for linhas in linhas_por_pagina if linhas[i] == linha_referencia)
+        if ocorrencias / len(linhas_por_pagina) < _FRACAO_MIN_PAGINAS_COM_CABECALHO:
+            break
+        tamanho_cabecalho = i + 1
+
+    if tamanho_cabecalho < _MIN_LINHAS_CABECALHO_REPETIDO:
+        return
+
+    cabecalho = linhas_por_pagina[0][:tamanho_cabecalho]
+    for pagina in paginas:
+        linhas = pagina.texto.splitlines()
+        if linhas[:tamanho_cabecalho] == cabecalho:
+            pagina.texto = "\n".join(linhas[tamanho_cabecalho:]).lstrip("\n")
+
+
 def _ler_pdf(
     caminho_pdf: str | Path,
     extrair_digital: Callable[[pdfplumber.page.Page, int], PaginaExtraida],
@@ -200,6 +249,8 @@ def _ler_pdf(
                 paginas.append(
                     PaginaExtraida(numero=numero, texto="", tabelas=[], fonte="ocr_indisponivel")
                 )
+
+    _remover_cabecalho_repetido(paginas)
 
     logger.info(
         "PDF '%s' lido: %d página(s), %d via OCR.",

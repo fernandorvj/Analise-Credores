@@ -259,10 +259,21 @@ def _extrair_de_linha_texto(linha: str, id_credor: int, pagina: int) -> Credor |
     if not linha:
         return None
 
-    doc_match = _RE_DOCUMENTO.search(linha)
-    if not doc_match:
+    documentos_na_linha = list(_RE_DOCUMENTO.finditer(linha))
+    if not documentos_na_linha:
         return None  # linha sem documento não é considerada um registro de credor
+    if len(documentos_na_linha) > 1:
+        # Mais de um CPF/CNPJ na mesma linha = vários credores compactados
+        # numa linha só, separados por ";" (comum em editais que publicam a
+        # relação como texto corrido, ex.: "NOME1 (CPF1), R$ X; NOME2 (CPF2),
+        # R$ Y; ..."). Este parser assume 1 documento = 1 credor por linha;
+        # tentar atribuir o "nome" pegando só o texto antes do PRIMEIRO
+        # documento produz lixo para os itens seguintes (pega o fim do nome
+        # anterior). Devolve None e deixa `_extrair_de_edital` (que já separa
+        # itens por ";") tratar a linha.
+        return None
 
+    doc_match = documentos_na_linha[0]
     documento_bruto = doc_match.group(0)
     tipo_doc, doc_valido = identificar_tipo_documento(documento_bruto)
 
@@ -675,21 +686,37 @@ def parsear_credores(paginas: list[PaginaExtraida], arquivo_nome: str) -> Result
             proximo_id += len(credores_tabela)
             continue
 
-        credores_texto = _extrair_de_texto(pagina, proximo_id)
-        # Se nenhum registro tem nome E valor de verdade, o parser de linha não
-        # serve para o layout desta página (um único "match" de nome sem valor,
-        # ou vice-versa, é sinal de falso-positivo — ex.: um número de
-        # protocolo/ID confundido com documento — não de uma extração boa) —
-        # tenta, nesta ordem, a tabela dinâmica sem documento (Classe/Tipo/
-        # Credor/Valor), o formato de edital ("CLASSE X - ...: NOME - R$
-        # VALOR; ...") e o de "ficha por credor" (um campo por linha), antes de
-        # aceitar o resultado vazio.
-        if not any(c.nome != _NOME_NAO_IDENTIFICADO and c.valor is not None for c in credores_texto):
-            credores_texto = _extrair_de_tabela_sem_documento(pagina, proximo_id, resultado)
-        if not credores_texto:
+        credores_texto: list[Credor] = []
+        # Se a página tem um marcador de classe de edital (ou já estamos no
+        # meio da lista de uma classe de edital vinda da página anterior),
+        # tenta o parser de edital PRIMEIRO — editais costumam compactar
+        # vários credores numa mesma linha/parágrafo, separados por ";"
+        # ("NOME1 (doc), R$ X; NOME2 (doc), R$ Y; ..."), o que o parser de
+        # linha abaixo (que assume 1 credor por linha) lê errado (pega só o
+        # primeiro documento da linha e atribui a ele um pedaço de nome
+        # arbitrário) em vez de simplesmente não encontrar nada — por isso
+        # não dá pra confiar no "nenhum resultado válido" dele como sinal de
+        # que este não é o formato certo.
+        if _pagina_parece_edital(pagina.texto) or classe_atual_edital is not None:
             credores_texto, classe_atual_edital, fragmento_pendente_edital = _extrair_de_edital(
                 pagina, proximo_id, classe_atual_edital, fragmento_pendente_edital
             )
+            total_geral_encontrado = _RE_TOTAL_GERAL_EDITAL.search(pagina.texto)
+            if total_geral_encontrado:
+                valor_bruto = total_geral_encontrado.group(1) or total_geral_encontrado.group(2)
+                resultado.total_geral_documento = parse_valor_brl(valor_bruto)
+
+        if not credores_texto:
+            credores_texto = _extrair_de_texto(pagina, proximo_id)
+            # Se nenhum registro tem nome E valor de verdade, o parser de linha
+            # não serve para o layout desta página (um único "match" de nome
+            # sem valor, ou vice-versa, é sinal de falso-positivo — ex.: um
+            # número de protocolo/ID confundido com documento — não de uma
+            # extração boa) — tenta a tabela dinâmica sem documento (Classe/
+            # Tipo/Credor/Valor) antes de aceitar o resultado vazio.
+            if not any(c.nome != _NOME_NAO_IDENTIFICADO and c.valor is not None for c in credores_texto):
+                credores_texto = _extrair_de_tabela_sem_documento(pagina, proximo_id, resultado)
+
         if not credores_texto:
             credores_texto = _extrair_de_blocos(pagina, proximo_id)
         resultado.credores.extend(credores_texto)
@@ -734,7 +761,13 @@ def parsear_credores(paginas: list[PaginaExtraida], arquivo_nome: str) -> Result
 # — este é só mais um formato de página de texto corrido, como
 # `_extrair_de_texto` e `_extrair_de_blocos`.
 
-_RE_CLASSE_MARCADOR_EDITAL = re.compile(r"CLASSE\s+[IVX]+[^:]{0,40}:", re.IGNORECASE)
+# Orçamento de 80 chars entre o algarismo romano e o ":" — rótulos de classe
+# por extenso podem ser longos (ex.: "Classe II – TITULARES DE CRÉDITO COM
+# GARANTIA REAL:" tem 41 chars nesse trecho, "Classe IV – MICROEMPRESAS E
+# EMPRESAS DE PEQUENO PORTE:" tem 44 — um orçamento de 40 deixava esses dois
+# de fora, fazendo toda a lista da classe cair, sem marcador próprio, dentro
+# da classe anterior).
+_RE_CLASSE_MARCADOR_EDITAL = re.compile(r"CLASSE\s+[IVX]+[^:]{0,80}:", re.IGNORECASE)
 # Variante sem dois-pontos: consome "CLASSE X" seguido de zero ou mais
 # palavras em CAIXA ALTA (o rótulo da classe) e para assim que encontrar uma
 # palavra que não seja toda maiúscula — sinal de que começou o nome (Title
@@ -743,11 +776,50 @@ _RE_CLASSE_MARCADOR_EDITAL = re.compile(r"CLASSE\s+[IVX]+[^:]{0,40}:", re.IGNORE
 _RE_CLASSE_MARCADOR_EDITAL_SEM_DOISPONTOS = re.compile(
     r"CLASSE\s+[IVX]+\s+(?:[A-ZÀ-ÜÇ][A-ZÀ-ÜÇ/]*\s+){0,10}"
 )
+# 3ª variante (vista em editais do TJMS/Comarca de Dourados): não usa a
+# palavra "CLASSE" antes do nome, e sim depois, na frase "TOTAL DA CLASSE"
+# — ex.: "TRABALHISTAS – TOTAL DA CLASSE: R$ 848.941,00." seguido da lista
+# de credores. O nome da classe (grupo 1) é resolvido por `_identificar_classe`
+# como qualquer outro rótulo (reconhece "trabalhista"/"garantia real"/
+# "quirograf" como substring, sem precisar da palavra "classe" no meio).
+_RE_CLASSE_MARCADOR_TOTAL_CLASSE = re.compile(
+    r"([A-ZÀ-ÜÇ][A-ZÀ-ÜÇ\s/]*?)\s*[–—-]\s*TOTAL\s+DA\s+CLASSE\s*:\s*R\$\s*[\d.,]+\s*\.?",
+    re.IGNORECASE,
+)
+
+
+# Alguns editais imprimem um "TOTAL GERAL: R$ X" ao final da relação — capturado
+# em `resultado.total_geral_documento` (mesmo campo que `_extrair_de_tabelas`/
+# `_extrair_de_tabela_sem_documento` já preenchem) para a reconciliação
+# automática (`_reconciliar_com_documento`) avisar se a soma extraída não bater.
+_RE_TOTAL_GERAL_EDITAL = re.compile(
+    r"TOTAL\s+GERAL\s*:\s*R\$\s*(\d[\d.,]*\d)|TOTAL\s+DOS?\s+CR[ÉE]DITOS\s+SUJEITOS\s*:\s*R\$\s*(\d[\d.,]*\d)",
+    re.IGNORECASE,
+)
+
+
+def _pagina_parece_edital(texto: str) -> bool:
+    """Sinaliza se a página tem algum marcador de classe de edital — usado
+    em `parsear_credores` para tentar `_extrair_de_edital` ANTES do parser
+    de linha, e não só como último recurso (ver comentário no chamador)."""
+    return bool(
+        _RE_CLASSE_MARCADOR_EDITAL.search(texto)
+        or _RE_CLASSE_MARCADOR_EDITAL_SEM_DOISPONTOS.search(texto)
+        or _RE_CLASSE_MARCADOR_TOTAL_CLASSE.search(texto)
+    )
 # Valor exige começar E terminar em dígito (como `_RE_VALOR_MONETARIO` acima)
 # — evita capturar pontuação de fechamento de frase (ex.: uma vírgula antes
 # de "TOTAL DE CRÉDITOS...") junto do valor. Hífen entre nome e "R$" é
 # opcional, para cobrir as duas variantes.
 _RE_ITEM_EDITAL = re.compile(r"^(.+?)\s*-?\s*R\$\s*(\d[\d.,]*\d)")
+# Remove um CPF/CNPJ (ou "-" quando o documento não é informado) entre
+# parênteses no fim do nome capturado acima — ex.: "FULANO (***.629.421-**),"
+# vira "FULANO". Comum em editais que publicam o documento mascarado (LGPD)
+# junto ao nome, no mesmo trecho que `_RE_ITEM_EDITAL` captura como nome.
+_RE_DOCUMENTO_ENTRE_PARENTESES_NO_NOME = re.compile(r"\s*\([^()]*\)\s*,?\s*$")
+
+
+_TAMANHO_MAX_FRAGMENTO_PENDENTE = 150  # chars — acima disso não é um nome cortado, é boilerplate
 
 
 def _itens_de_trecho(trecho: str, classe: str, numero_pagina: int, proximo_id: int) -> tuple[list[Credor], str]:
@@ -766,8 +838,20 @@ def _itens_de_trecho(trecho: str, classe: str, numero_pagina: int, proximo_id: i
         if not item:
             continue
         correspondencia = _RE_ITEM_EDITAL.match(item)
+        # Um pedaço que já começa em "R$" (sem nome antes) não tem como
+        # `.+?` casar vazio — o regex avança até achar OUTRO "R$" mais à
+        # frente e pega esse valor errado. Isso aconteceu de verdade num
+        # trecho de fechamento do tipo "R$ 1.328.558,02. – TOTAL GERAL: R$
+        # 30.370.161,18." (texto de resumo após o último ";", não um
+        # credor) — o "nome" capturado virava o resumo inteiro e o valor
+        # virava o TOTAL GERAL do documento inteiro, dobrando a soma
+        # extraída. Group(1) nunca deveria conter "R$" — se contém, é sinal
+        # desse mesmo problema, então o casamento é descartado.
+        if correspondencia and "R$" in correspondencia.group(1):
+            correspondencia = None
         if correspondencia:
             nome = limpar_espacos(correspondencia.group(1))
+            nome = limpar_espacos(_RE_DOCUMENTO_ENTRE_PARENTESES_NO_NOME.sub("", nome))
             valor = parse_valor_brl(correspondencia.group(2))
             if not nome or valor is None:
                 continue
@@ -789,11 +873,15 @@ def _itens_de_trecho(trecho: str, classe: str, numero_pagina: int, proximo_id: i
         elif indice == len(pedacos) - 1:
             # Não casou e é o último pedaço do trecho: pode ser texto de
             # fechamento do edital OU um item partido pela quebra de página.
-            # Só é seguro tratar como possível item partido se tiver conteúdo
-            # "razoável" (não uma frase inteira de fechamento) — heurística:
-            # sem outro sinal melhor, devolve sempre; se for boilerplate, o
-            # próximo trecho começará com um marcador de classe e o resto é
-            # descartado por quem chama.
+            # Só é tratado como possível item partido se tiver um tamanho
+            # plausível para um nome cortado — um nome de credor real não
+            # chega a `_TAMANHO_MAX_FRAGMENTO_PENDENTE` caracteres; acima
+            # disso é sinal de rodapé/cabeçalho de página (ex.: carimbo de
+            # verificação digital do e-SAJ, que aparece como texto invertido
+            # — "odarebil ,AMIL AZUOS..." — e ficava sendo colado na frente
+            # do nome do primeiro credor da página seguinte).
+            if len(item) > _TAMANHO_MAX_FRAGMENTO_PENDENTE:
+                return credores, ""
             return credores, item
 
     return credores, ""
@@ -819,6 +907,8 @@ def _extrair_de_edital(
     marcadores = list(_RE_CLASSE_MARCADOR_EDITAL.finditer(texto))
     if not marcadores:
         marcadores = list(_RE_CLASSE_MARCADOR_EDITAL_SEM_DOISPONTOS.finditer(texto))
+    if not marcadores:
+        marcadores = list(_RE_CLASSE_MARCADOR_TOTAL_CLASSE.finditer(texto))
     credores: list[Credor] = []
     novo_fragmento_pendente = ""
 
