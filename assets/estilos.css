@@ -2,10 +2,13 @@
    material institucional (Modelos/*.pdf). Mantenha os valores abaixo em sincronia
    manual com o dicionário CORES em config.py.
 
-   Design System "Dark Glass" (v4) — canvas escuro (navy quase-preto) com
-   glassmorphism: cards translúcidos com blur, bordas finas de vidro, brilho
-   suave em vez de sombra dura. Paleta volta às cores da empresa (azul
-   indigo/cyan), sem o verde/preto-e-branco da v3. Depende também de
+   Design System "Premium Fintech Dashboard" (v5) — evolução da v4 "Dark
+   Glass": canvas em azul-marinho profundo de verdade (não navy-quase-preto),
+   glassmorphism (cards translúcidos com blur, bordas finas de vidro, brilho
+   suave em vez de sombra dura) e um acento dourado discreto para ações de
+   navegação, ao lado do indigo/cyan institucional. Fase 1 desta versão cobre
+   só os tokens de cor e a Home (ver interface/home.py) — os demais módulos
+   seguem no visual v4 até serem migrados, um de cada vez. Depende também de
    .streamlit/config.toml (base="dark") para os componentes nativos do
    Streamlit (dropdowns, calendário, grid do dataframe) ficarem escuros —
    CSS sozinho não alcança esses componentes. Ícones via Material Symbols
@@ -18,12 +21,15 @@
     --amf3-indigo-claro: #8B93FF;   /* variante clara — hover/foco/brilho */
     --amf3-carvao: #F3F4F8;         /* texto principal — quase branco */
     --amf3-ambar: #4FC3F7;          /* accent secundário — ciano-azulado (era verde/dourado) */
-    --amf3-fundo: #0B0E1A;          /* canvas — navy quase-preto */
+    --amf3-fundo: #071A35;          /* canvas — azul-marinho profundo (v5 "Premium Fintech", era #0B0E1A) */
+    --amf3-fundo-secundario: #0A2647;  /* v5: azul petróleo — superfícies/gradientes secundários */
     --amf3-fundo-card: rgba(255, 255, 255, 0.05);  /* superfície de vidro */
     --amf3-vidro-blur: 18px;
     --amf3-borda: rgba(255, 255, 255, 0.14);
     --amf3-borda-largura: 1px;
-    --amf3-texto-mudo: #9CA0BE;
+    --amf3-texto-mudo: #9CA0BE;     /* tier "cinza médio" — não renomear/remover: referenciada direto em peticao_inicial.py:236 */
+    --amf3-texto-mudo-forte: #C4C8DE;  /* v5: tier "cinza claro" — texto secundário com mais contraste que uma legenda */
+    --amf3-dourado: #C9A24B;        /* v5: cor de ação discreta (dourado) — usada nas barras de navegação da Home */
     --amf3-sucesso: #3DDC84;
     --amf3-alerta: #FFC24B;
     --amf3-erro: #FF6B6B;
@@ -91,7 +97,8 @@ h1, h2, h3, h4, h5,
 
 /* ---------- Logo (chip claro — o logo é escuro, precisa de fundo claro) --- */
 
-.st-key-amf3_logo_chip {
+.st-key-amf3_logo_chip,
+.st-key-amf3_home_hero_logo {
     background: #FFFFFF;
     display: inline-block;
     border-radius: 14px;
@@ -291,29 +298,6 @@ h1, h2, h3, h4, h5,
 .st-key-amf3_titulo_pagina h2 [data-testid="stIconMaterial"] {
     color: var(--amf3-indigo-claro);
     font-size: 1.6rem !important;
-}
-
-/* ---------- Botão "Voltar para Home" (substitui a navegação da sidebar) ---------- */
-
-.st-key-amf3_btn_voltar button {
-    font-family: var(--amf3-fonte-titulo);
-    font-weight: 600;
-    font-size: 0.85rem;
-    border: 1px solid var(--amf3-borda);
-    border-radius: 999px;
-    color: var(--amf3-texto-mudo);
-    background: var(--amf3-fundo-card);
-    backdrop-filter: blur(var(--amf3-vidro-blur));
-    -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
-    box-shadow: none;
-    padding: 0.3rem 0.9rem;
-}
-
-.st-key-amf3_btn_voltar button:hover {
-    color: var(--amf3-carvao);
-    border-color: var(--amf3-indigo-claro);
-    background: rgba(91, 103, 255, 0.16);
-    box-shadow: none;
 }
 
 /* ---------- KPIs (st.metric) ---------- */
@@ -590,13 +574,27 @@ h1, h2, h3, h4, h5,
     border: 1px solid var(--amf3-borda);
 }
 
-/* ---------- Hero de boas-vindas (Home) ---------- */
-/* Bloco de abertura da Home: eyebrow discreto, título com peso, muito
-   espaço em branco — mesma hierarquia minimalista de antes, só recolorida
-   para o canvas escuro. */
+/* ---------- Hero de boas-vindas (Home) — v5 ---------- */
+/* Logo + nome + subtítulo + texto institucional, lado a lado (logo numa
+   coluna estreita, texto na coluna larga) dentro de um st.container(key=
+   "amf3_home_hero") — mesmo mecanismo de CSS hook já usado em
+   amf3_logo_chip/amf3_titulo_pagina, não um novo. */
 
-.amf3-home-hero {
-    padding: 0.5rem 0.1rem 2.25rem 0.1rem;
+.st-key-amf3_home_hero {
+    padding: 0.5rem 0.1rem 2rem 0.1rem;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+}
+
+.st-key-amf3_home_hero:hover {
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+.st-key-amf3_home_hero_logo [data-testid="stImage"] img {
+    border-radius: var(--amf3-raio-pequeno);
 }
 
 .amf3-home-hero-eyebrow {
@@ -616,99 +614,95 @@ h1, h2, h3, h4, h5,
     letter-spacing: -0.02em;
     line-height: 1.25;
     color: var(--amf3-carvao);
-    margin: 0 0 0.75rem 0;
+    margin: 0 0 0.6rem 0;
 }
 
 .amf3-home-hero-subtitulo {
     font-family: var(--amf3-fonte-corpo);
     font-size: 1rem;
     line-height: 1.65;
-    color: var(--amf3-texto-mudo);
-    max-width: 620px;
+    color: var(--amf3-texto-mudo-forte);
+    max-width: 640px;
     margin: 0;
-    text-align: justify;
-    text-align-last: left;
 }
 
-/* ---------- Cards da Home ---------- */
-/* Minimalista + vidro: card compacto, borda fina translúcida, brilho suave
-   em vez de sombra dura, ícone discreto num selo de vidro, descrição
-   truncada em 3 linhas (altura sempre uniforme) e um link de texto no
-   lugar de um botão grande. */
-
-.amf3-card-conteudo {
-    padding: 0.15rem 0.05rem 0.25rem 0.05rem;
-}
+/* ---------- Barras de navegação da Home — v5 ---------- */
+/* Substituem a grade 2x3 de cards grandes por uma lista vertical única de
+   barras compactas (ícone + título/descrição + seta), uma por módulo —
+   pedido explícito do usuário ("botões menores porém longos, com scroll").
+   Reaproveita o MESMO seletor genérico de vidro/hover que já estiliza
+   outros st.container(border=True) do sistema (cards de aprovação por
+   classe em dashboard.py, preview de arquivo em componentes_ui.py) — só o
+   co-seletor específico da Home mudou de :has(.amf3-card-conteudo) para
+   :has(.amf3-navbar-texto); a parte genérica [style*="border"] continua
+   intacta e não pode ser removida. */
 
 [class*="st-key-home_card_"] {
-    padding: 1.35rem 1.4rem;
+    padding: 0.85rem 1.25rem;
+    margin-bottom: 0.65rem;
 }
 
-[class*="st-key-home_card_"] h2 {
-    margin: 0 0 0.9rem 0;
-}
-
-[class*="st-key-home_card_"] h2 [data-testid="stIconMaterial"] {
-    font-size: 1.35rem !important;
+/* Ícone gerado pelo markdown nativo do Streamlit (não uma div própria — ver
+   nota em interface/home.py::_renderizar_barra_nav sobre por que o shortcode
+   :material/xxx: precisa passar pelo markdown de verdade, não por HTML cru). */
+[class*="st-key-home_card_"] [data-testid="stIconMaterial"] {
+    font-size: 1.3rem !important;
     line-height: 1;
     color: var(--amf3-indigo-claro);
     background: rgba(91, 103, 255, 0.12);
     border-radius: 10px;
-    padding: 0.55rem;
+    padding: 0.6rem;
     display: inline-flex;
 }
 
-.amf3-card-titulo {
+.amf3-navbar-texto {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.amf3-navbar-titulo {
     font-family: var(--amf3-fonte-titulo);
     font-weight: 700;
     color: var(--amf3-carvao);
-    font-size: 1.05rem;
+    font-size: 1rem;
     letter-spacing: -0.01em;
-    margin: 0 0 0.4rem 0;
 }
 
-.amf3-card-descricao {
+.amf3-navbar-descricao {
     font-family: var(--amf3-fonte-corpo);
-    color: var(--amf3-texto-mudo);
+    color: var(--amf3-texto-mudo-forte);
     font-size: 0.85rem;
-    line-height: 1.55;
-    text-align: justify;
-    text-align-last: left;
-    margin-bottom: 0;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
+    line-height: 1.4;
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 [class*="st-key-home_card_"] .stButton > button {
     background: transparent;
-    color: var(--amf3-carvao);
+    color: var(--amf3-dourado);
     border: none;
     box-shadow: none;
-    font-size: 0.85rem;
-    font-weight: 600;
-    padding: 0.9rem 0 0 0;
-    justify-content: flex-start;
+    padding: 0.5rem;
 }
 
 [class*="st-key-home_card_"] .stButton > button:hover {
-    background: transparent;
-    color: var(--amf3-indigo-claro);
+    background: rgba(201, 162, 75, 0.14);
+    color: var(--amf3-dourado);
     box-shadow: none;
-    transform: translateX(2px);
+    transform: translateX(3px);
 }
 
 [class*="st-key-home_card_"] .stButton > button:active {
-    transform: translateX(2px);
+    transform: translateX(3px);
     box-shadow: none;
 }
 
-[data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo),
+[data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-navbar-texto),
 [data-testid="stVerticalBlock"] > [style*="border"] {
     border: 1px solid var(--amf3-borda) !important;
-    border-radius: var(--amf3-raio) !important;
+    border-radius: var(--amf3-raio-pequeno) !important;
     background: var(--amf3-fundo-card);
     backdrop-filter: blur(var(--amf3-vidro-blur));
     -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
@@ -716,10 +710,10 @@ h1, h2, h3, h4, h5,
     transition: box-shadow var(--amf3-transicao), transform var(--amf3-transicao), border-color var(--amf3-transicao);
 }
 
-[data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-card-conteudo):hover,
+[data-testid="stVerticalBlockBorderWrapper"]:has(.amf3-navbar-texto):hover,
 [data-testid="stVerticalBlock"] > [style*="border"]:hover {
     box-shadow: var(--amf3-sombra-hover);
-    transform: translateY(-3px);
+    transform: translateY(-2px);
     border-color: rgba(91, 103, 255, 0.4) !important;
 }
 

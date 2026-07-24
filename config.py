@@ -89,10 +89,12 @@ def possui_protecao_por_senha() -> bool:
 # validador de paleta categórica (dataviz skill) — ΔE mínimo adjacente 21.6.
 
 CORES = {
-    "primaria": "#5B67FF",       # azul da marca — vívido, pop no canvas escuro (identidade v4 "Dark Glass")
+    "primaria": "#5B67FF",       # azul da marca — vívido, pop no canvas escuro (identidade v4/v5)
     "secundaria": "#F3F4F8",     # texto principal, quase branco (canvas agora é escuro)
     "destaque": "#B87A12",       # âmbar (mantido como acento categórico de gráfico, ver nota abaixo)
-    "fundo": "#0B0E1A",          # canvas — navy quase-preto
+    "fundo": "#071A35",          # canvas — azul-marinho profundo (v5 "Premium Fintech", era #0B0E1A)
+    "fundo_secundario": "#0A2647",  # v5: azul petróleo — superfícies/gradientes secundários
+    "acao_dourado": "#C9A24B",   # v5: cor de ação discreta (dourado) — barras de navegação da Home
     "texto": "#F3F4F8",
     "sucesso": "#3DDC84",        # status: ok
     "alerta": "#FFC24B",         # status: revisar

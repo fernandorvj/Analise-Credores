@@ -1,4 +1,4 @@
-# Tema base da plataforma AMF3 Capital — "Dark Glass" (v4).
+# Tema base da plataforma AMF3 Capital — "Premium Fintech Dashboard" (v5).
 #
 # Necessário além do CSS em assets/estilos.css: vários componentes nativos do
 # Streamlit (menu do selectbox/multiselect, calendário do date_input, grid do
@@ -9,7 +9,7 @@
 [theme]
 base = "dark"
 primaryColor = "#5B67FF"
-backgroundColor = "#0B0E1A"
+backgroundColor = "#071A35"
 secondaryBackgroundColor = "#12162A"
 textColor = "#F3F4F8"
 font = "sans serif"
