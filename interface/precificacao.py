@@ -787,13 +787,15 @@ def _renderizar_resultado(resultado: ResultadoPrecificacaoClasse) -> None:
     st.caption(f"Origem da taxa de desconto: {resultado.origem_taxa_desconto}")
 
     st.markdown("#### Resultado")
+    variante_vpl = "kpi_positivo" if resultado.vpl_comercial > 0 else "kpi_negativo"
     renderizar_kpis(
         [
             ("Fluxo Nominal Total", formatar_moeda(float(resultado.fluxo_nominal_total))),
             ("Valor Presente do Fluxo (VP Total)", formatar_moeda(float(resultado.vp_total))),
             ("VPL Real Comercial", formatar_moeda(float(resultado.vpl_comercial))),
             ("% Recuperação Efetiva", formatar_percentual(float(resultado.percentual_recuperacao_efetiva) / 100)),
-        ]
+        ],
+        variantes=[None, None, variante_vpl, variante_vpl],
     )
     st.caption(
         "VPL Real Comercial = Valor Presente do Fluxo − Crédito Original. Como se trata de uma Recuperação "

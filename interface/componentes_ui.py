@@ -44,7 +44,7 @@ def renderizar_preview_arquivo(arquivo) -> None:
         return
     extensao = arquivo.name.rsplit(".", 1)[-1].lower() if "." in arquivo.name else ""
     chave_icone = _ICONE_POR_EXTENSAO.get(extensao, "arquivo_generico")
-    with st.container(border=True):
+    with st.container(key="amf3_upload_preview_chip", border=True):
         st.markdown(f"##### {icone(chave_icone)} {arquivo.name}")
         st.caption(_formatar_tamanho(arquivo.size))
 

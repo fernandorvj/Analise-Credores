@@ -88,49 +88,54 @@ def renderizar_menu_lateral() -> None:
 
 
 def renderizar_cabecalho_app() -> None:
-    """Cabeçalho fixo no topo de toda página pós-login: logo, identidade da
-    plataforma e, à direita, usuário logado + botões Home/Configurações/Sair.
+    """Cabeçalho fixo (sticky) no topo de toda página pós-login: logo,
+    identidade da plataforma e, à direita, usuário logado + botões
+    Home/Configurações/Sair. O `st.container(key=...)` ao redor das colunas
+    existe só para dar à CSS um "invólucro" único do cabeçalho inteiro (ver
+    `.st-key-amf3_cabecalho_shell` em assets/estilos.css) — sem isso, CSS só
+    alcançaria cada coluna isoladamente, não a barra como uma unidade fixa.
     """
-    col_logo, col_titulo, col_usuario = st.columns([1, 3, 1.6], vertical_alignment="center")
+    with st.container(key="amf3_cabecalho_shell"):
+        col_logo, col_titulo, col_usuario = st.columns([1, 3, 1.6], vertical_alignment="center")
 
-    with col_logo:
-        if LOGO_PATH.exists():
-            with st.container(key="amf3_logo_chip"):
-                st.image(str(LOGO_PATH), width=110)
+        with col_logo:
+            if LOGO_PATH.exists():
+                with st.container(key="amf3_logo_chip"):
+                    st.image(str(LOGO_PATH), width=110)
 
-    with col_titulo:
-        st.markdown(
-            f"""
-            <div class="amf3-appbar-titulo">
-                <h2>{NOME_PLATAFORMA}</h2>
-                <p class="amf3-appbar-subtitulo">{SUBTITULO_PLATAFORMA}</p>
-                <p class="amf3-appbar-institucional">{TEXTO_INSTITUCIONAL}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with col_titulo:
+            st.markdown(
+                f"""
+                <div class="amf3-appbar-titulo">
+                    <h2>{NOME_PLATAFORMA}</h2>
+                    <p class="amf3-appbar-subtitulo">{SUBTITULO_PLATAFORMA}</p>
+                    <p class="amf3-appbar-institucional">{TEXTO_INSTITUCIONAL}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-    with col_usuario:
-        nome_usuario = APP_USERNAME or "Usuário"
-        st.markdown(
-            f"""
-            <div class="amf3-appbar-usuario">
-                <span class="amf3-appbar-usuario-nome">{nome_usuario}</span>
-                <span class="amf3-appbar-usuario-perfil">Administrador</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        col_home, col_config, col_sair = st.columns(3)
-        with col_home:
-            if st.button("Home", key="topo_btn_home", icon=icone("home"), width="stretch"):
-                navegar_para("home")
-        with col_config:
-            if st.button("Config.", key="topo_btn_config", icon=icone("configuracoes"), width="stretch"):
-                navegar_para("configuracoes")
-        with col_sair:
-            if st.button("Sair", key="topo_btn_sair", icon=icone("sair"), width="stretch"):
-                fazer_logout()
+        with col_usuario:
+            nome_usuario = APP_USERNAME or "Usuário"
+            st.markdown(
+                f"""
+                <div class="amf3-appbar-usuario">
+                    <span class="amf3-appbar-usuario-nome">{nome_usuario}</span>
+                    <span class="amf3-appbar-usuario-perfil">Administrador</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            col_home, col_config, col_sair = st.columns(3)
+            with col_home:
+                if st.button("Home", key="topo_btn_home", icon=icone("home"), width="stretch"):
+                    navegar_para("home")
+            with col_config:
+                if st.button("Config.", key="topo_btn_config", icon=icone("configuracoes"), width="stretch"):
+                    navegar_para("configuracoes")
+            with col_sair:
+                if st.button("Sair", key="topo_btn_sair", icon=icone("sair"), width="stretch"):
+                    fazer_logout()
 
     st.divider()
 

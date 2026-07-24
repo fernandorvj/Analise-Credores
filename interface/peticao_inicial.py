@@ -100,15 +100,17 @@ def _renderizar_card_passivo_fiscal(relatorio: RelatorioPeticaoInicial) -> None:
     (ou não) de passivo fiscal/execuções fiscais sem precisar abrir a seção.
     """
     pf = relatorio.passivo_fiscal
-    with st.container(border=True):
+    chave_card = "amf3_card_passivo_fiscal_alerta" if pf.localizado else "amf3_card_passivo_fiscal_ok"
+    with st.container(key=chave_card, border=True):
         st.markdown(f"#### {icone('fiscal')} Passivo Fiscal e Execuções Fiscais")
         if pf.localizado:
             st.warning("Localizado")
         else:
             st.success("Não localizado")
 
+        variante_kpi = "kpi_negativo" if pf.localizado else "kpi_positivo"
         col_valor, col_execucao, col_qtd, col_orgaos = st.columns(4)
-        with col_valor:
+        with col_valor, st.container(key=f"{variante_kpi}_passivo_fiscal"):
             st.metric(f"{icone('moeda')} Valor do Passivo Fiscal", pf.valor_passivo_fiscal)
         with col_execucao:
             st.metric(f"{icone('moeda')} Valor das Execuções", pf.valor_execucoes_fiscais)

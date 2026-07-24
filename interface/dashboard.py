@@ -519,7 +519,12 @@ def renderizar_votacao_aprovacao(resultado: ResultadoExtracao) -> None:
 
 def _renderizar_card_aprovacao_classe(sim: SimulacaoAprovacaoClasse) -> None:
     icone_status = icone("aprovado") if sim.aprovada_atualmente else icone("erro")
-    with st.container(border=True):
+    # Chave só precisa CONTER "amf3_card_aprovacao" (ver seletor [class*=...]
+    # em estilos.css) — o sufixo por classe existe só pra Streamlit aceitar
+    # chaves únicas neste loop; visualmente todas as classes usam o mesmo
+    # estilo de card (decisão do usuário: visual único, não uma cor por
+    # classe).
+    with st.container(key=f"amf3_card_aprovacao_{sim.classe}", border=True):
         st.markdown(f"#### {icone_status} {sim.classe}")
 
         criterios_texto = []
@@ -529,12 +534,13 @@ def _renderizar_card_aprovacao_classe(sim: SimulacaoAprovacaoClasse) -> None:
             criterios_texto.append("quantidade de credores")
         st.caption("Critério de aprovação exigido: " + " e ".join(criterios_texto) + " (> 50%).")
 
+        variante_kpi = "kpi_positivo" if sim.aprovada_atualmente else "kpi_negativo"
         colunas = st.columns(2)
         if sim.exige_valor:
-            with colunas[0]:
+            with colunas[0], st.container(key=f"{variante_kpi}_valor_{sim.classe}"):
                 st.metric("% Valor Favorável", formatar_percentual(sim.percentual_valor_atual))
         if sim.exige_quantidade:
-            with colunas[1]:
+            with colunas[1], st.container(key=f"{variante_kpi}_qtd_{sim.classe}"):
                 st.metric("% Credores Favoráveis (quantidade)", formatar_percentual(sim.percentual_quantidade_atual))
 
         if sim.aprovada_atualmente:

@@ -6,9 +6,11 @@
    Glass": canvas em azul-marinho profundo de verdade (não navy-quase-preto),
    glassmorphism (cards translúcidos com blur, bordas finas de vidro, brilho
    suave em vez de sombra dura) e um acento dourado discreto para ações de
-   navegação, ao lado do indigo/cyan institucional. Fase 1 desta versão cobre
-   só os tokens de cor e a Home (ver interface/home.py) — os demais módulos
-   seguem no visual v4 até serem migrados, um de cada vez. Depende também de
+   navegação, ao lado do indigo/cyan institucional. Fase 1 cobriu os tokens
+   de cor e a Home (ver interface/home.py). Fase 2 estende o sistema para o
+   resto do "shell" (Login, Menu Lateral, Cabeçalho) e para os componentes
+   compartilhados (KPIs, Upload, Botões/Inputs, Tabelas, cards de decisão)
+   usados por todos os módulos. Depende também de
    .streamlit/config.toml (base="dark") para os componentes nativos do
    Streamlit (dropdowns, calendário, grid do dataframe) ficarem escuros —
    CSS sozinho não alcança esses componentes. Ícones via Material Symbols
@@ -24,8 +26,10 @@
     --amf3-fundo: #071A35;          /* canvas — azul-marinho profundo (v5 "Premium Fintech", era #0B0E1A) */
     --amf3-fundo-secundario: #0A2647;  /* v5: azul petróleo — superfícies/gradientes secundários */
     --amf3-fundo-card: rgba(255, 255, 255, 0.05);  /* superfície de vidro */
+    --amf3-fundo-elevado: rgba(255, 255, 255, 0.08);  /* v5 Fase 2: superfície "elevada" — mais opaca que --amf3-fundo-card, para cards de decisão (login, aprovação, passivo fiscal) */
     --amf3-vidro-blur: 18px;
     --amf3-borda: rgba(255, 255, 255, 0.14);
+    --amf3-borda-forte: rgba(255, 255, 255, 0.24);  /* v5 Fase 2: borda companion de --amf3-fundo-elevado */
     --amf3-borda-largura: 1px;
     --amf3-texto-mudo: #9CA0BE;     /* tier "cinza médio" — não renomear/remover: referenciada direto em peticao_inicial.py:236 */
     --amf3-texto-mudo-forte: #C4C8DE;  /* v5: tier "cinza claro" — texto secundário com mais contraste que uma legenda */
@@ -106,10 +110,13 @@ h1, h2, h3, h4, h5,
     box-shadow: var(--amf3-sombra);
 }
 
-/* ---------- Menu lateral (sidebar) ---------- */
+/* ---------- Menu lateral (sidebar) — v5 Fase 2 ---------- */
 /* Recolhível de fábrica pelo Streamlit (seta no topo) — não precisa de
    lógica própria de colapso. Item ativo usa type="primary" (mesmo botão
-   com gradiente já usado em toda a plataforma), os demais ficam "ghost". */
+   com gradiente já usado em toda a plataforma) mais uma barra de acento à
+   esquerda; os demais ficam "ghost". Acento aqui é sempre indigo — o
+   dourado fica reservado às barras de navegação da Home (Fase 1), para não
+   diluir esse sinal visual. */
 
 [data-testid="stSidebar"] {
     background: rgba(255, 255, 255, 0.03);
@@ -124,13 +131,17 @@ h1, h2, h3, h4, h5,
     font-size: 1.05rem;
     color: var(--amf3-carvao);
     padding: 0.25rem 0 1.25rem 0;
+    margin-bottom: 0.75rem;
     letter-spacing: -0.01em;
+    border-bottom: 1px solid var(--amf3-borda);
 }
 
 [data-testid="stSidebar"] .stButton > button {
     justify-content: flex-start;
     font-weight: 600;
-    margin-bottom: 0.3rem;
+    margin-bottom: 0.45rem;
+    border-left: 3px solid transparent;
+    transition: background var(--amf3-transicao), color var(--amf3-transicao), border-color var(--amf3-transicao);
 }
 
 [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
@@ -150,6 +161,7 @@ h1, h2, h3, h4, h5,
 
 [data-testid="stSidebar"] .stButton > button[kind="primary"] {
     box-shadow: 0 4px 16px rgba(91, 103, 255, 0.35);
+    border-left: 3px solid var(--amf3-indigo-claro);
 }
 
 [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
@@ -188,11 +200,11 @@ h1, h2, h3, h4, h5,
     margin: 7vh auto 0 auto;
     padding: 3rem 2.75rem 2.25rem 2.75rem;
     border-radius: 24px;
-    border: 1px solid var(--amf3-borda);
-    background: var(--amf3-fundo-card);
+    border: 1px solid var(--amf3-borda-forte);
+    background: var(--amf3-fundo-elevado);
     backdrop-filter: blur(var(--amf3-vidro-blur));
     -webkit-backdrop-filter: blur(var(--amf3-vidro-blur));
-    box-shadow: var(--amf3-sombra);
+    box-shadow: var(--amf3-sombra-hover);
     text-align: center;
     animation: amf3-login-entra 0.5s ease;
 }
@@ -231,7 +243,31 @@ h1, h2, h3, h4, h5,
     padding: 0;
 }
 
-/* ---------- Barra de navegação (topo, todas as páginas) ---------- */
+/* ---------- Barra de navegação (topo, todas as páginas) — v5 Fase 2 ---------- */
+/* Fixa (sticky) logo abaixo da barra nativa do Streamlit, que mede 60px de
+   altura e usa z-index 999990 ([data-testid="stHeader"], medido em runtime
+   via Playwright) — por isso o top:60px e um z-index bem menor aqui, senão
+   nosso cabeçalho ficaria por baixo do menu nativo de deploy/hambúrguer.
+   Fundo sólido (não translúcido) para o conteúdo não "vazar" por trás ao
+   rolar a página. */
+
+/* O position:sticky precisa ir no wrapper AUTOGERADO pelo Streamlit ao
+   redor de todo st.container(key=...) (stLayoutWrapper), não na própria
+   div marcada — essa div tem altura idêntica ao próprio conteúdo, então
+   não sobra "espaço de sobra" no pai pra sticky funcionar; o wrapper, por
+   sua vez, é filho direto do bloco vertical que contém a página inteira
+   (bem mais alto), que é onde sticky realmente tem espaço pra atuar. */
+[data-testid="stLayoutWrapper"]:has(> .st-key-amf3_cabecalho_shell) {
+    position: sticky;
+    top: 60px;
+    z-index: 999;
+}
+
+.st-key-amf3_cabecalho_shell {
+    background: var(--amf3-fundo);
+    padding: 0.75rem 0 0.25rem 0;
+    box-shadow: 0 12px 24px -12px rgba(0, 0, 0, 0.5);
+}
 
 .amf3-appbar-titulo {
     text-align: center;
@@ -320,6 +356,21 @@ h1, h2, h3, h4, h5,
     border-color: rgba(91, 103, 255, 0.35);
 }
 
+/* Variantes v5 Fase 2 — a borda âmbar padrão acima continua intocada pra
+   quem não optar por uma variante (maioria dos ~17 pontos de st.metric do
+   app). Só os poucos pontos onde o código já calcula um sinal inequívoco
+   (aprovado/reprovado, passivo localizado, VPL positivo/negativo) usam
+   isso, envolvendo o st.metric num st.container(key="kpi_positivo_..."/
+   "kpi_negativo_...") — ver dashboard.py, peticao_inicial.py e
+   precificacao.py. */
+[class*="st-key-kpi_positivo"] [data-testid="stMetric"] {
+    border-left-color: var(--amf3-sucesso);
+}
+
+[class*="st-key-kpi_negativo"] [data-testid="stMetric"] {
+    border-left-color: var(--amf3-erro);
+}
+
 [data-testid="stMetricLabel"] {
     font-family: var(--amf3-fonte-corpo);
     color: var(--amf3-texto-mudo);
@@ -371,8 +422,9 @@ h1, h2, h3, h4, h5,
 }
 
 .stButton > button:active, .stFormSubmitButton > button:active {
-    transform: translateY(0);
+    transform: translateY(0) scale(0.98);
     box-shadow: none;
+    transition-duration: 90ms;
 }
 
 .stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primaryFormSubmit"] {
@@ -386,6 +438,12 @@ h1, h2, h3, h4, h5,
     box-shadow: 0 10px 28px rgba(91, 103, 255, 0.5);
     border-color: transparent;
     transform: translateY(-1px);
+}
+
+.stButton > button[kind="primary"]:active, .stFormSubmitButton > button[kind="primaryFormSubmit"]:active {
+    box-shadow: 0 4px 14px rgba(91, 103, 255, 0.4);
+    transform: translateY(0) scale(0.98);
+    transition-duration: 90ms;
 }
 
 .stDownloadButton > button {
@@ -407,6 +465,11 @@ h1, h2, h3, h4, h5,
     transform: translateY(-1px);
 }
 
+.stDownloadButton > button:active {
+    transform: translateY(0) scale(0.98);
+    transition-duration: 90ms;
+}
+
 /* ---------- Formulários ---------- */
 
 .stTextInput input, .stNumberInput input, .stSelectbox > div, .stTextArea textarea {
@@ -415,6 +478,11 @@ h1, h2, h3, h4, h5,
     background: rgba(255, 255, 255, 0.04) !important;
     color: var(--amf3-carvao) !important;
     font-family: var(--amf3-fonte-corpo);
+    transition: border-color var(--amf3-transicao), box-shadow var(--amf3-transicao);
+}
+
+.stTextInput input:hover, .stNumberInput input:hover, .stSelectbox > div:hover, .stTextArea textarea:hover {
+    border-color: rgba(255, 255, 255, 0.28) !important;
 }
 
 .stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
@@ -426,6 +494,52 @@ h1, h2, h3, h4, h5,
     background: rgba(255, 255, 255, 0.02) !important;
     color: var(--amf3-texto-mudo) !important;
     opacity: 1;
+}
+
+/* ---------- Upload de arquivo — v5 Fase 2 ---------- */
+/* Gap total antes desta fase (zero regras) — confirmado via grep. Usado em
+   5 pontos do app (Credores, Análise de Documentos, Precificação, Petição
+   Inicial, Proposta ao Credor), todos com o mesmo data-testid nativo, sem
+   necessidade de key= por módulo. */
+
+[data-testid="stFileUploaderDropzone"] {
+    background: var(--amf3-fundo-card);
+    border: 1.5px dashed var(--amf3-borda);
+    border-radius: var(--amf3-raio-pequeno);
+    transition: border-color var(--amf3-transicao), background var(--amf3-transicao);
+}
+
+[data-testid="stFileUploaderDropzone"]:hover {
+    border-color: var(--amf3-indigo-claro);
+    background: rgba(91, 103, 255, 0.06);
+}
+
+/* Botão nativo "Browse files" — não é um .stButton (é gerado direto pelo
+   uploader), por isso precisa do próprio seletor para ganhar o mesmo
+   tratamento pill/glass dos outros botões. */
+[data-testid="stFileUploaderDropzone"] button[data-testid="stBaseButton-secondary"] {
+    border-radius: 999px;
+    background: var(--amf3-fundo-elevado);
+    border: 1px solid var(--amf3-borda);
+    color: var(--amf3-carvao);
+    transition: background var(--amf3-transicao), border-color var(--amf3-transicao), transform var(--amf3-transicao);
+}
+
+[data-testid="stFileUploaderDropzone"] button[data-testid="stBaseButton-secondary"]:hover {
+    background: rgba(91, 103, 255, 0.16);
+    border-color: var(--amf3-indigo-claro);
+    transform: translateY(-1px);
+}
+
+/* Linha nativa "arquivo selecionado" (distinta do chip próprio do app em
+   componentes_ui.py::renderizar_preview_arquivo — ver B.6) — estilizada
+   pra não destoar quando as duas aparecem empilhadas. */
+[data-testid="stFileUploaderFile"] {
+    background: var(--amf3-fundo-card);
+    border: 1px solid var(--amf3-borda);
+    border-radius: var(--amf3-raio-pequeno);
+    padding: 0.4rem 0.75rem;
+    margin-top: 0.5rem;
 }
 
 /* ---------- Estados de foco (acessibilidade/teclado) ---------- */
@@ -496,7 +610,8 @@ h1, h2, h3, h4, h5,
     overflow: hidden;
     font-family: var(--amf3-fonte-corpo);
     box-shadow: var(--amf3-sombra);
-    border: 1px solid var(--amf3-borda);
+    border: 1px solid var(--amf3-borda-forte);
+    background: var(--amf3-fundo-elevado);
 }
 
 /* Cabeçalho com peso tipográfico maior + zebra striping + hover de linha —
@@ -715,6 +830,40 @@ h1, h2, h3, h4, h5,
     box-shadow: var(--amf3-sombra-hover);
     transform: translateY(-2px);
     border-color: rgba(91, 103, 255, 0.4) !important;
+}
+
+/* ---------- Cards de decisão — v5 Fase 2 ---------- */
+/* 3 tipos de st.container(border=True) que antes caíam todos no fallback
+   genérico acima ganham hooks próprios: chip de upload (mais leve/
+   compacto, não é clicável), card de aprovação por classe (visual único
+   pra todas as classes — decisão do usuário) e card de Passivo Fiscal
+   (acento dinâmico conforme localizado/não localizado). Qualquer outro
+   st.container(border=True) sem key= continua no fallback genérico acima
+   — não removido, só ganhou vizinhas mais específicas. */
+
+.st-key-amf3_upload_preview_chip {
+    padding: 0.6rem 0.9rem !important;
+    background: var(--amf3-fundo-card) !important;
+}
+
+.st-key-amf3_upload_preview_chip:hover {
+    transform: none !important;
+    box-shadow: var(--amf3-sombra) !important;
+}
+
+[class*="st-key-amf3_card_aprovacao"] {
+    background: var(--amf3-fundo-elevado) !important;
+    border-color: var(--amf3-borda-forte) !important;
+}
+
+.st-key-amf3_card_passivo_fiscal_alerta {
+    background: var(--amf3-fundo-elevado) !important;
+    border-left: 3px solid var(--amf3-erro) !important;
+}
+
+.st-key-amf3_card_passivo_fiscal_ok {
+    background: var(--amf3-fundo-elevado) !important;
+    border-left: 3px solid var(--amf3-sucesso) !important;
 }
 
 /* ---------- Rodapé ---------- */

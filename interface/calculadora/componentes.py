@@ -174,14 +174,25 @@ def campo_moeda(
     return st.session_state[chave_valor]
 
 
-def renderizar_kpis(pares: list[tuple[str, str]]) -> None:
+def renderizar_kpis(pares: list[tuple[str, str]], variantes: list[str | None] | None = None) -> None:
     """KPIs em `st.metric` dentro de `st.columns` — herda automaticamente o
     estilo de card já definido globalmente para `[data-testid="stMetric"]`.
+
+    `variantes`, se informado, é uma lista do mesmo tamanho de `pares` com
+    "kpi_positivo"/"kpi_negativo"/None por item — envolve o `st.metric` num
+    `st.container(key=...)` para pintar a borda esquerda de verde/vermelho
+    (ver assets/estilos.css, seção KPIs). Opcional e aditivo: chamadas sem
+    esse argumento continuam exatamente como antes.
     """
     colunas = st.columns(len(pares))
-    for coluna, (rotulo, valor) in zip(colunas, pares):
+    for indice, (coluna, (rotulo, valor)) in enumerate(zip(colunas, pares)):
+        variante = variantes[indice] if variantes else None
         with coluna:
-            st.metric(rotulo, valor)
+            if variante:
+                with st.container(key=f"{variante}_kpi_{indice}_{rotulo}"):
+                    st.metric(rotulo, valor)
+            else:
+                st.metric(rotulo, valor)
 
 
 def salvar_cenario(nome: str, tipo: str, resultado) -> None:
